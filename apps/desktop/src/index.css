@@ -23,3 +23,38 @@ body {
   font-size: var(--fs-2);
   -webkit-font-smoothing: antialiased;
 }
+
+/* Sliders custom (look Webflow): track fino con relleno acento y thumb
+   blanco. El % de relleno lo pasa el control vía --fill. */
+input[type="range"].steer {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 3px;
+  border-radius: 9999px;
+  background: linear-gradient(
+    to right,
+    var(--accent) var(--fill, 50%),
+    var(--bg-3) var(--fill, 50%)
+  );
+  outline: none;
+  cursor: pointer;
+}
+
+input[type="range"].steer::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
+}
+
+input[type="range"].steer::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: #fff;
+  border: 2px solid var(--accent);
+}

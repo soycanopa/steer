@@ -240,6 +240,14 @@
     lastMove = now;
     var el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el || el === hoverBox || el === hoverLabel || el === selectBox || el === selectLabel) return;
+    // Hover sobre el ya seleccionado: sin chip duplicado (el outline de
+    // selección ya está); el espaciado se sigue mostrando.
+    if (el === selectedEl) {
+      if (hoverBox) hoverBox.style.display = "none";
+      if (hoverLabel) hoverLabel.style.display = "none";
+      placeSpacing(el);
+      return;
+    }
     ensureOverlayNodes();
     place(hoverBox, el);
     placeLabel(hoverLabel, el);

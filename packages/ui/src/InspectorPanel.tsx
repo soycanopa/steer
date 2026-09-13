@@ -399,6 +399,7 @@ function SliderControl({
   const [text, setText] = useState<string | null>(null);
   const value = current ?? initial;
   const clamped = Math.min(max, Math.max(min, value));
+  const fill = ((clamped - min) / (max - min)) * 100;
 
   return (
     <div className="flex min-w-0 flex-1 items-center gap-2">
@@ -409,27 +410,21 @@ function SliderControl({
         step={1}
         value={clamped}
         onChange={(e) => onValue(Number(e.target.value))}
-        className="h-1 min-w-0 flex-1 accent-[var(--accent)]"
+        style={{ "--fill": `${fill}%` } as React.CSSProperties}
+        className="steer h-1 min-w-0 flex-1"
       />
-      <span className="relative shrink-0">
-        <input
-          type="text"
-          inputMode="numeric"
-          value={text ?? String(clamped)}
-          onChange={(e) => {
-            setText(e.target.value);
-            const n = Number(e.target.value);
-            if (Number.isFinite(n) && e.target.value.trim() !== "") {
-              onValue(Math.min(max, Math.max(min, n)));
-            }
-          }}
-          onBlur={() => setText(null)}
-          className="w-12 rounded-[var(--radius-s)] bg-[var(--bg-2)] py-0.5 pr-1 pl-1.5 text-right font-mono text-[length:var(--fs-0)] text-[var(--text-0)] outline-none focus:ring-1 focus:ring-[var(--accent)]"
-        />
-        <span className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 text-[length:var(--fs-0)] text-[var(--text-2)]">
-          {unit}
-        </span>
-      </span>
+      <input
+        type="text"
+        inputMode="numeric"
+        value={text ?? `${clamped}${unit}`}
+        onChange={(e) => {
+          setText(e.target.value);
+          const m = /(\d+(?:\.\d+)?)/.exec(e.target.value);
+          if (m) onValue(Math.min(max, Math.max(min, Number(m[1]))));
+        }}
+        onBlur={() => setText(null)}
+        className="w-14 shrink-0 rounded-[var(--radius-s)] bg-[var(--bg-2)] px-1.5 py-0.5 text-right font-mono text-[length:var(--fs-0)] text-[var(--text-0)] outline-none focus:ring-1 focus:ring-[var(--accent)]"
+      />
     </div>
   );
 }
