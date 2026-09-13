@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@steer/domain": "workspace:*"
+    "@steer/domain": "workspace:*",
+    "lucide-react": "^1.45.0"
   },
   "peerDependencies": {
     "react": "^19"

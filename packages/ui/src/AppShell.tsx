@@ -1,16 +1,23 @@
 // AppShell — UI.md §3. Titlebar 40px overlay + zona de contenido.
-// Statusbar y SplitPane llegan con el preview (Fase B). Recibe datos y
-// callbacks por props; no conoce stores ni adapters (ARCHITECTURE §3).
+// Statusbar y SplitPane llegan con el inspector/chat (Fases D–E). Recibe
+// datos y callbacks por props; no conoce stores ni adapters (ARCH §3).
 
 import type { ReactNode } from "react";
 
 export type AppShellProps = {
   projectName: string;
   projectPath: string;
+  /** Estado real del dev server del proyecto abierto. */
+  devStatus: "live" | "down" | "idle";
   children: ReactNode;
 };
 
-export function AppShell({ projectName, projectPath, children }: AppShellProps) {
+export function AppShell({
+  projectName,
+  projectPath,
+  devStatus,
+  children,
+}: AppShellProps) {
   return (
     <div
       className="flex h-full flex-col bg-[var(--bg-0)] text-[var(--text-0)]"
@@ -27,7 +34,8 @@ export function AppShell({ projectName, projectPath, children }: AppShellProps) 
           {projectPath}
         </span>
         <div className="flex items-center justify-end gap-2">
-          <StatusPill label="dev" value="down" tone="down" />
+          <StatusPill label="dev" value={devStatus} tone={devStatus} />
+          {/* Estado real de OpenCode llega en Fase F. */}
           <StatusPill label="opencode" value="off" tone="idle" />
         </div>
       </header>
@@ -37,7 +45,6 @@ export function AppShell({ projectName, projectPath, children }: AppShellProps) 
 }
 
 // UI.md §3: pill estado dev (live verde / down rojo) · pill agente.
-// Los valores reales llegan con project_dev_start (Fase B) y opencode (Fase F).
 function StatusPill({
   label,
   value,
