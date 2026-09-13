@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "zustand";
-import { AppShell, EmptyState } from "@steer/ui";
+import { AppShell, EmptyState, PreviewFrame } from "@steer/ui";
 import { store } from "./composition";
 import { pickDirectory } from "./tauri/dialog";
 
@@ -9,6 +9,10 @@ export default function App() {
   const projectMeta = useStore(store, (s) => s.projectMeta);
   const projectError = useStore(store, (s) => s.projectError);
   const lastProject = useStore(store, (s) => s.lastProject);
+  const previewStatus = useStore(store, (s) => s.previewStatus);
+  const previewUrl = useStore(store, (s) => s.previewUrl);
+  const previewError = useStore(store, (s) => s.previewError);
+  const reloadNonce = useStore(store, (s) => s.reloadNonce);
 
   useEffect(() => {
     void store.getState().bootstrap();
@@ -32,13 +36,23 @@ export default function App() {
   }, []);
 
   if (projectStatus === "open" && projectMeta) {
+    const devStatus =
+      previewStatus === "live" ? "live" : previewStatus === "down" ? "down" : "idle";
+
     return (
-      <AppShell projectName={projectMeta.name} projectPath={projectMeta.root}>
-        <div className="flex h-full items-center justify-center">
-          <p className="text-[length:var(--fs-2)] text-[var(--text-2)]">
-            El preview vive aquí. Todavía no — llega con la Fase B.
-          </p>
-        </div>
+      <AppShell
+        projectName={projectMeta.name}
+        projectPath={projectMeta.root}
+        devStatus={devStatus}
+      >
+        <PreviewFrame
+          url={previewUrl}
+          status={previewStatus}
+          error={previewError}
+          iframeKey={`${previewUrl ?? "none"}#${reloadNonce}`}
+          onReload={() => store.getState().reloadPreview()}
+          onRetry={() => void store.getState().startPreview()}
+        />
       </AppShell>
     );
   }
