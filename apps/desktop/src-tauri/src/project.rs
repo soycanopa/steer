@@ -51,7 +51,7 @@ pub fn project_read_package(path: String) -> Result<serde_json::Value, String> {
     read_package_json(root)
 }
 
-fn read_package_json(root: &Path) -> Result<serde_json::Value, String> {
+pub(crate) fn read_package_json(root: &Path) -> Result<serde_json::Value, String> {
     let raw = fs::read_to_string(root.join("package.json"))
         .map_err(|_| format!("No hay package.json en {root:?} — eso no parece un proyecto Node."))?;
     serde_json::from_str(&raw).map_err(|e| format!("package.json inválido: {e}"))
@@ -65,7 +65,7 @@ fn file_name(root: &Path) -> String {
 }
 
 /// TRD §4.1: pnpm-lock.yaml > package-lock.json > yarn.lock > bun.
-fn detect_package_manager(root: &Path) -> &'static str {
+pub(crate) fn detect_package_manager(root: &Path) -> &'static str {
     if root.join("pnpm-lock.yaml").is_file() {
         "pnpm"
     } else if root.join("package-lock.json").is_file() {

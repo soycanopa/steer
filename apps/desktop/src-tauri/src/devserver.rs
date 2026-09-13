@@ -1,0 +1,228 @@
+// devserver.rs — ciclo de vida del dev server del proyecto (TRD §4.1).
+// Reutilizar si ya responde; si no, spawn de `pm run dev`, extraer la URL
+// del stdout (o convención :3000) y health-check hasta 30s. Steer solo
+// mata los procesos que ella misma arrancó.
+
+use std::collections::HashMap;
+use std::net::TcpStream;
+use std::path::Path;
+use std::process::Child;
+use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
+use std::time::Instant;
+
+use serde::Serialize;
+
+use crate::process;
+use crate::process::SharedLines;
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DevStartInfo {
+    url: String,
+    spawned: bool,
+}
+
+pub struct ManagedDev {
+    child: Child,
+    url: String,
+    pub logs: SharedLines,
+}
+
+/// Ruta del proyecto → proceso gestionado. Estado Tauri compartido.
+pub type DevServerMap = Mutex<HashMap<String, ManagedDev>>;
+
+pub fn new_map() -> DevServerMap {
+    Mutex::new(HashMap::new())
+}
+
+#[tauri::command]
+pub fn project_dev_start(
+    path: String,
+    state: tauri::State<'_, DevServerMap>,
+) -> Result<DevStartInfo, String> {
+    let root = Path::new(&path);
+    if !root.is_dir() {
+        return Err(format!("La carpeta no existe: {path}"));
+    }
+
+    let map = state.lock().expect("devserver map poisoned");
+
+    // 1. Ya lo arrancamos y sigue vivo.
+    if let Some(dev) = map.get(&path) {
+        if port_open(port_of(&dev.url)) {
+            return Ok(DevStartInfo {
+                url: dev.url.clone(),
+                spawned: false,
+            });
+        }
+    }
+
+    // 2. Convención :3000 ya responde → reutilizar, no matar (TRD §4.1.4).
+    if let Some(url) = probe_convention_port() {
+        return Ok(DevStartInfo {
+            url,
+            spawned: false,
+        });
+    }
+    // 3. Script `dev` presente.
+    let pkg = crate::project::read_package_json(root)?;
+    let has_dev = pkg
+        .get("scripts")
+        .and_then(|s| s.get("dev"))
+        .is_some();
+    if !has_dev {
+        return Err(
+            "El proyecto no tiene script `dev` en package.json — Steer no sabe arrancarlo."
+                .to_string(),
+        );
+    }
+
+    // 4. Spawn `pm run dev` con cwd = proyecto.
+    let pm = crate::project::detect_package_manager(root);
+    let mut child = process::spawn_in_dir(root, pm, &["run", "dev"])?;
+    let stdout = child.stdout.take().expect("stdout piped");
+    let stderr = child.stderr.take().expect("stderr piped");
+    let logs = process::shared_lines();
+    process::drain(stdout, logs.clone());
+    process::drain(stderr, logs.clone());
+
+    // 5. Esperar URL del stdout o convención :3000, con health-check (30s).
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let mut url: Option<String> = None;
+    drop(map); // no sostener el lock durante el wait
+
+    while Instant::now() < deadline {
+        // El proceso murió antes de servir: reportar cola de logs.
+        if let Ok(Some(status)) = child.try_wait() {
+            let tail = process::tail(&logs, 8).join("\n");
+            return Err(format!(
+                "El dev server murió al arrancar ({status}). Últimas líneas:\n{tail}"
+            ));
+        }
+        if let Some(found) = url_from_logs(&logs).or_else(probe_convention_port) {
+            if port_open(port_of(&found)) {
+                url = Some(found);
+                break;
+            }
+        }
+        thread::sleep(Duration::from_millis(400));
+    }
+
+    match url {
+        Some(url) => {
+            state
+                .lock()
+                .expect("devserver map poisoned")
+                .insert(path, ManagedDev { child, url: url.clone(), logs });
+            Ok(DevStartInfo { url, spawned: true })
+        }
+        None => {
+            process::kill_tree(&mut child);
+            let tail = process::tail(&logs, 8).join("\n");
+            Err(format!(
+                "El dev server no respondió en 30s. Últimas líneas:\n{tail}"
+            ))
+        }
+    }
+}
+
+#[tauri::command]
+pub fn project_dev_stop(path: String, state: tauri::State<'_, DevServerMap>) {
+    // Solo mata lo que Steer arrancó. Un server ajeno queda intacto.
+    if let Ok(mut map) = state.lock() {
+        if let Some(mut dev) = map.remove(&path) {
+            process::kill_tree(&mut dev.child);
+        }
+    }
+}
+
+/// Cleanup al salir de la app: no dejar vite huérfano.
+pub fn kill_all(map: &DevServerMap) {
+    if let Ok(mut map) = map.lock() {
+        for (_, mut dev) in map.drain() {
+            process::kill_tree(&mut dev.child);
+        }
+    }
+}
+
+fn url_from_logs(logs: &SharedLines) -> Option<String> {
+    let guard = logs.lock().expect("lines poisoned");
+    guard.iter().rev().find_map(|line| extract_local_url(line))
+}
+
+/// `Local: http://localhost:3000/` o `http://127.0.0.1:5173` → URL.
+fn extract_local_url(line: &str) -> Option<String> {
+    for prefix in ["http://localhost:", "http://127.0.0.1:"] {
+        let Some(start) = line.find(prefix) else {
+            continue;
+        };
+        let rest = &line[start..];
+        let end = rest
+            .char_indices()
+            .find(|(i, c)| {
+                *i >= prefix.len()
+                    && !(c.is_ascii_alphanumeric() || matches!(c, '.' | ':' | '/' | '-' | '_'))
+            })
+            .map(|(i, _)| i)
+            .unwrap_or(rest.len());
+        let candidate = rest[..end].trim_end_matches('/');
+        // Validar que haya puerto.
+        if port_of(candidate) > 0 {
+            return Some(candidate.to_string());
+        }
+    }
+    None
+}
+
+fn port_of(url: &str) -> u16 {
+    url.rsplit(':')
+        .next()
+        .and_then(|p| p.parse::<u16>().ok())
+        .unwrap_or(0)
+}
+
+fn probe_convention_port() -> Option<String> {
+    // Convención del prototipo: TanStack Start dev en :3000.
+    port_open(3000).then(|| "http://localhost:3000".to_string())
+}
+
+fn port_open(port: u16) -> bool {
+    if port == 0 {
+        return false;
+    }
+    use std::net::SocketAddr;
+    use std::net::ToSocketAddrs;
+    ("127.0.0.1", port)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addrs| addrs.next())
+        .map(|addr: SocketAddr| TcpStream::connect_timeout(&addr, Duration::from_millis(400)).is_ok())
+        .unwrap_or(false)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn extrae_url_de_linea_vite() {
+        assert_eq!(
+            extract_local_url("  ➜  Local:   http://localhost:3000/"),
+            Some("http://localhost:3000".to_string())
+        );
+        assert_eq!(
+            extract_local_url("Local: http://127.0.0.1:5173/ (_ready)"),
+            Some("http://127.0.0.1:5173".to_string())
+        );
+        // URL de red → ignorada (TRD: solo localhost).
+        assert_eq!(extract_local_url("Network: http://192.168.1.4:3000/"), None);
+    }
+
+    #[test]
+    fn port_of_url() {
+        assert_eq!(port_of("http://localhost:3000"), 3000);
+        assert_eq!(port_of("http://localhost"), 0);
+    }
+}

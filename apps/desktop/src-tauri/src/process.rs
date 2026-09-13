@@ -1,0 +1,94 @@
+// process.rs — spawn/kill genérico (ARCHITECTURE §8). Sin negocio:
+// nada aquí sabe qué es un dev server ni un provider. Sepa matar un
+// árbol de procesos y capturar líneas; el resto vive en devserver.rs.
+
+use std::io::BufRead;
+use std::io::BufReader;
+use std::process::Child;
+use std::process::Command;
+use std::process::Stdio;
+use std::sync::Arc;
+use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
+
+/// Líneas capturadas de stdout/stderr de un proceso gestionado.
+pub type SharedLines = Arc<Mutex<Vec<String>>>;
+
+pub fn shared_lines() -> SharedLines {
+    Arc::new(Mutex::new(Vec::new()))
+}
+
+/// Últimas `n` líneas, en orden original.
+pub fn tail(lines: &SharedLines, n: usize) -> Vec<String> {
+    let guard = lines.lock().expect("lines poisoned");
+    let start = guard.len().saturating_sub(n);
+    guard[start..].to_vec()
+}
+
+/// Spawn en `dir` en su propio grupo de procesos (Unix) para poder
+/// matar el árbol completo (pnpm → vite) y no dejar huérfanos.
+pub fn spawn_in_dir(dir: &std::path::Path, program: &str, args: &[&str]) -> Result<Child, String> {
+    #[cfg(unix)]
+    use std::os::unix::process::CommandExt;
+
+    let mut cmd = Command::new(program);
+    cmd.args(args)
+        .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null());
+
+    #[cfg(unix)]
+    cmd.process_group(0);
+
+    cmd.spawn().map_err(|e| format!("No pude ejecutar {program}: {e}"))
+}
+
+/// Captura las líneas de un stream hacia `sink` hasta que el proceso muera.
+pub fn drain<R: std::io::Read + Send + 'static>(stream: R, sink: SharedLines) {
+    thread::spawn(move || {
+        let reader = BufReader::new(stream);
+        for line in reader.lines() {
+            match line {
+                Ok(text) => {
+                    let mut guard = sink.lock().expect("lines poisoned");
+                    // Cap blando: guardamos lo último, no toda la historia.
+                    if guard.len() > 500 {
+                        guard.drain(0..250);
+                    }
+                    guard.push(text);
+                }
+                Err(_) => break,
+            }
+        }
+    });
+}
+
+/// Mata el grupo de procesos del child (SIGTERM, luego SIGKILL) y lo recoje.
+/// Unix-only vía pgid; en otros targets cae a child.kill().
+pub fn kill_tree(child: &mut Child) {
+    #[cfg(unix)]
+    {
+        let negpid = -(child.id() as i32);
+        // SIGTERM al grupo completo: pnpm y sus hijos (vite, node).
+        // SAFETY: kill con señales estándar a un pgid que nosotros creamos.
+        unsafe {
+            libc::kill(negpid, libc::SIGTERM);
+        }
+        for _ in 0..20 {
+            if matches!(child.try_wait(), Ok(Some(_))) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(100));
+        }
+        unsafe {
+            libc::kill(negpid, libc::SIGKILL);
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = child.kill();
+    }
+    let _ = child.wait();
+}
