@@ -110,6 +110,7 @@ fn router(state: Arc<ProxyState>) -> Router {
             get(|| async {
                 (
                     [(CONTENT_TYPE, "application/javascript")],
+                    [("cache-control", "no-store")],
                     BRIDGE_JS,
                 )
             }),
@@ -252,11 +253,20 @@ async fn forward_http(state: Arc<ProxyState>, request: Request) -> Result<Respon
 
 /// Inserta `<script src="/__steer/bridge.js">` antes de `</body>`
 /// (case-insensitive). Sin `</body>`, se anexa al final.
+/// Inserta `<script src="/__steer/bridge.js?v=<ts>">` antes de `</body>`
+/// (case-insensitive). Sin `</body>`, se anexa al final. El `?v=` cambia
+/// por respuesta para que ningún cache del webview sirva un bridge viejo.
 fn inject_bridge(html: &str) -> String {
-    const TAG: &str = r#"<script src="/__steer/bridge.js"></script>"#;
+    const TAG_OPEN: &str = r#"<script src="/__steer/bridge.js?v="#;
+    const TAG_END: &str = r#""></script>"#;
+    let version = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis())
+        .unwrap_or(0);
+    let tag = format!("{TAG_OPEN}{version}{TAG_END}");
     match html.to_ascii_lowercase().rfind("</body") {
-        Some(i) => format!("{}{TAG}{}", &html[..i], &html[i..]),
-        None => format!("{html}{TAG}"),
+        Some(i) => format!("{}{}{}", &html[..i], tag, &html[i..]),
+        None => format!("{html}{tag}"),
     }
 }
 
@@ -357,19 +367,20 @@ mod tests {
     fn inyecta_antes_de_body() {
         let html = "<html><body><h1>hola</h1></body></html>";
         let out = inject_bridge(html);
-        assert!(out.contains(r#"<script src="/__steer/bridge.js"></script></body>"#));
+        assert!(out.contains(r#"<script src="/__steer/bridge.js?v="#));
+        assert!(out.contains(r#""></script></body>"#));
     }
 
     #[test]
     fn inyeccion_case_insensitive() {
         let html = "<html><BODY><h1>hola</h1></BODY></html>";
         let out = inject_bridge(html);
-        assert!(out.contains(r#"</script></BODY>"#));
+        assert!(out.contains(r#"></script></BODY>"#));
     }
 
     #[test]
     fn sin_body_se_anexa() {
         let out = inject_bridge("<p>hola</p>");
-        assert!(out.ends_with(r#"<script src="/__steer/bridge.js"></script>"#));
+        assert!(out.contains(r#"<script src="/__steer/bridge.js?v="#));
     }
 }
