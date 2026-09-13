@@ -2,12 +2,14 @@
 // preview de texto, scope) + TweakList P0 con overrides efímeros.
 // Recibe datos y callbacks; no conoce stores ni ports (ARCHITECTURE §3).
 
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import {
   AlignCenter,
   AlignJustify,
   AlignLeft,
   AlignRight,
+  Pin,
+  X,
 } from "lucide-react";
 import type { Scope, Selection, TweakProp } from "@steer/domain";
 import {
@@ -25,25 +27,38 @@ export type TweakView = {
   to: string;
 };
 
+export type PinView = {
+  id: string;
+  pin: number;
+  body: string;
+};
+
 export type InspectorPanelProps = {
   selection: Selection | null;
   scope: Scope;
   /** Drafts de la selección actual (App filtra por nodo+scope). */
   tweaks: TweakView[];
+  /** Comments encolados de la selección actual (UI.md §5.3). */
+  pins: PinView[];
   onSetScope(scope: Scope): void;
   onSetTweak(prop: TweakProp, to: string): void;
   onResetTweak(prop: TweakProp): void;
   onResetAll(): void;
+  onAddPin(body: string): void;
+  onRemovePin(id: string): void;
 };
 
 export function InspectorPanel({
   selection,
   scope,
   tweaks,
+  pins,
   onSetScope,
   onSetTweak,
   onResetTweak,
   onResetAll,
+  onAddPin,
+  onRemovePin,
 }: InspectorPanelProps) {
   if (selection === null) {
     return (
@@ -111,6 +126,86 @@ export function InspectorPanel({
           </button>
         ) : null}
       </Section>
+
+      <Section title="Pins">
+        <PinSection pins={pins} onAdd={onAddPin} onRemove={onRemovePin} />
+      </Section>
+    </div>
+  );
+}
+
+// UI.md §5.3 / UX §5.5: textarea 3 filas, Enter envía (Shift+Enter =
+// nueva línea), pin vacío no se encola. Lista de pins de la selección.
+function PinSection({
+  pins,
+  onAdd,
+  onRemove,
+}: {
+  pins: PinView[];
+  onAdd(body: string): void;
+  onRemove(id: string): void;
+}) {
+  const [text, setText] = useState("");
+  const ref = useRef<HTMLTextAreaElement>(null);
+
+  function submit() {
+    const trimmed = text.trim();
+    if (trimmed === "") return;
+    onAdd(trimmed);
+    setText("");
+    requestAnimationFrame(() => ref.current?.focus());
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {pins.length > 0 ? (
+        <ul className="flex flex-col gap-1">
+          {pins.map((p) => (
+            <li
+              key={p.id}
+              className="flex items-start gap-2 rounded-[var(--radius-s)] bg-[var(--bg-2)] px-2 py-1"
+            >
+              <span className="mt-0.5 flex items-center gap-1 font-mono text-[length:var(--fs-0)] text-[var(--pin)]">
+                <Pin size={11} strokeWidth={1.75} />#{p.pin}
+              </span>
+              <span className="min-w-0 flex-1 text-[length:var(--fs-1)] text-[var(--text-1)]">
+                {p.body}
+              </span>
+              <button
+                type="button"
+                onClick={() => onRemove(p.id)}
+                title="Borrar pin"
+                className="text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--danger)]"
+              >
+                <X size={12} strokeWidth={1.75} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+      <textarea
+        ref={ref}
+        id="steer-pin-input"
+        rows={3}
+        value={text}
+        placeholder="Comentario anclado al nodo… (Enter envía)"
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        className="resize-none rounded-[var(--radius-s)] bg-[var(--bg-2)] px-2 py-1.5 text-[length:var(--fs-1)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)] focus:ring-1 focus:ring-[var(--accent)]"
+      />
+      <button
+        type="button"
+        onClick={submit}
+        disabled={text.trim() === ""}
+        className="w-fit rounded-[var(--radius-s)] bg-[var(--bg-2)] px-2 py-1 text-[length:var(--fs-1)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--bg-3)] disabled:opacity-40"
+      >
+        Añadir pin
+      </button>
     </div>
   );
 }

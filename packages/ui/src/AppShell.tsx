@@ -1,14 +1,17 @@
-// AppShell — UI.md §3. Titlebar 40px overlay + zona de contenido.
-// Statusbar y SplitPane llegan con el inspector/chat (Fases D–E). Recibe
-// datos y callbacks por props; no conoce stores ni adapters (ARCH §3).
+// AppShell — UI.md §3. Titlebar 40px overlay + contenido + Statusbar.
+// Recibe datos y callbacks por props; no conoce stores ni adapters
+// (ARCHITECTURE §3).
 
 import type { ReactNode } from "react";
+import { Statusbar } from "./Statusbar";
 
 export type AppShellProps = {
   projectName: string;
   projectPath: string;
   /** Estado real del dev server del proyecto abierto. */
   devStatus: "live" | "down" | "idle";
+  mode: "inspect" | "interact";
+  queueCount: number;
   children: ReactNode;
 };
 
@@ -16,6 +19,8 @@ export function AppShell({
   projectName,
   projectPath,
   devStatus,
+  mode,
+  queueCount,
   children,
 }: AppShellProps) {
   return (
@@ -40,6 +45,7 @@ export function AppShell({
         </div>
       </header>
       <main className="min-h-0 flex-1">{children}</main>
+      <Statusbar mode={mode} queueCount={queueCount} />
     </div>
   );
 }
