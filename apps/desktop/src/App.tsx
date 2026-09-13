@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useStore } from "zustand";
 import {
   AppShell,
@@ -9,9 +9,11 @@ import {
   SplitPane,
 } from "@steer/ui";
 import { setFrameEl, store } from "./composition";
+import { DebugDrawer } from "./DebugDrawer";
 import { pickDirectory } from "./tauri/dialog";
 
 export default function App() {
+  const [debugOpen, setDebugOpen] = useState(false);
   const projectStatus = useStore(store, (s) => s.projectStatus);
   const projectMeta = useStore(store, (s) => s.projectMeta);
   const projectError = useStore(store, (s) => s.projectError);
@@ -60,6 +62,11 @@ export default function App() {
       if (e.metaKey && e.key.toLowerCase() === "z") {
         e.preventDefault();
         store.getState().undoLastTweak();
+        return;
+      }
+      if (e.metaKey && e.key === ".") {
+        e.preventDefault();
+        setDebugOpen((v) => !v);
         return;
       }
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
@@ -132,6 +139,7 @@ export default function App() {
         chatOpen={chatOpen}
         onToggleChat={() => store.getState().toggleChat()}
       >
+        <DebugDrawer open={debugOpen} />
         <SplitPane
           left={
             <PreviewFrame

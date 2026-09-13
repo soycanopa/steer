@@ -10,8 +10,19 @@ import { createTauriProjectPort } from "./tauri/project-port";
 // Ref al iframe del preview; el adapter lo lee al postear/suscribir.
 const frameRef: { current: HTMLIFrameElement | null } = { current: null };
 
+// Anillo de debug del canal steer:* (TRD §15) — lo muestra ⌘D.
+const debugLines: string[] = [];
+export function pushDebug(line: string): void {
+  const time = new Date().toLocaleTimeString();
+  debugLines.push(`${time}  ${line}`);
+  if (debugLines.length > 40) debugLines.shift();
+}
+export function getDebugLines(): string[] {
+  return [...debugLines];
+}
+
 const projectPort = createTauriProjectPort();
-const previewPort = createIframePreviewPort(() => frameRef.current);
+const previewPort = createIframePreviewPort(() => frameRef.current, pushDebug);
 const prefs = createPrefs();
 
 // Fase F registra aquí los AgentPort:

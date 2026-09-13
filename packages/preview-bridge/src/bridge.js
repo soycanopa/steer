@@ -419,12 +419,19 @@
   }
 
   // Navegación SPA: limpiar overrides, pins y selección (UX §5.9).
+  // SOLO si el pathname cambió: el router llama replaceState constantemente
+  // (scroll restoration, sync) y eso NO es navegación — si notificáramos
+  // siempre, el padre deseleccionaría justo después de cada click.
+  var lastPath = location.pathname;
   function notifyNavigate(href) {
+    if (href === lastPath) return;
+    lastPath = href;
     clearOverrides();
     clearPins();
     selectedEl = null;
     selectedId = null;
     if (selectBox) selectBox.style.display = "none";
+    if (selectLabel) selectLabel.style.display = "none";
     send({ type: "steer:navigate", href: href });
   }
   var pushState = history.pushState;

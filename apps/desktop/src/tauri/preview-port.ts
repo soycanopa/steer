@@ -6,6 +6,7 @@ import type { FrameToParent, ParentToFrame, PreviewPort } from "@steer/ports";
 
 export function createIframePreviewPort(
   getFrame: () => HTMLIFrameElement | null,
+  onDebug?: (line: string) => void,
 ): PreviewPort {
   const handlers = new Set<(msg: FrameToParent) => void>();
 
@@ -21,6 +22,7 @@ export function createIframePreviewPort(
     ) {
       return;
     }
+    onDebug?.(`← ${data.type}`);
     for (const handler of handlers) {
       handler(data as FrameToParent);
     }
@@ -29,8 +31,10 @@ export function createIframePreviewPort(
   function post(msg: ParentToFrame): void {
     const frameWindow = getFrame()?.contentWindow;
     if (frameWindow) {
+      onDebug?.(`→ ${msg.type}`);
       frameWindow.postMessage(msg, "*");
     } else {
+      onDebug?.("⚠ postMessage sin iframe");
       console.warn("steer:preview postMessage sin iframe", msg.type);
     }
   }
