@@ -30,6 +30,8 @@ export function createIframePreviewPort(
     const frameWindow = getFrame()?.contentWindow;
     if (frameWindow) {
       frameWindow.postMessage(msg, "*");
+    } else {
+      console.warn("steer:preview postMessage sin iframe", msg.type);
     }
   }
 

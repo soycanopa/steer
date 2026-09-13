@@ -195,7 +195,10 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
 
     setTweak(prop, to) {
       const { selection, selectedId, scope, tweaks, tweakLog, queue } = get();
-      if (selection === null || selectedId === null) return;
+      if (selection === null || selectedId === null) {
+        console.warn("steer:setTweak sin selección activa", { prop, selectedId });
+        return;
+      }
       const existing = findTweak(tweaks, selectedId, scope, prop);
       const draft: TweakDraft = existing
         ? { ...existing, to }

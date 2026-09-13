@@ -33,6 +33,10 @@
   var hoverBox = null;
   var hoverLabel = null;
   var selectBox = null;
+  var selectLabel = null;
+  var marginBox = null;
+  var paddingBox = null;
+  var inspectStyle = null;
   var styleEl = null;
   var lastMove = 0;
 
@@ -44,45 +48,133 @@
     }
   }
 
-  function ensureOverlayNodes() {
-    if (hoverBox) return;
-    hoverBox = document.createElement("div");
-    hoverBox.setAttribute("data-steer-hover", "");
-    hoverBox.style.cssText =
-      "position:fixed;pointer-events:none;z-index:2147483646;border:2px solid " +
-      OVERLAY_COLOR +
-      ";display:none;margin:0;padding:0;background:transparent;";
-    hoverLabel = document.createElement("div");
-    hoverLabel.style.cssText =
-      "position:fixed;pointer-events:none;z-index:2147483647;display:none;" +
-      "font:11px/1.3 ui-monospace,SFMono-Regular,Menlo,monospace;" +
-      "background:#0e0f11cc;color:#f2f3f5;padding:1px 5px;border-radius:4px;" +
-      "white-space:nowrap;transform:translateY(-110%);";
-    selectBox = document.createElement("div");
-    selectBox.setAttribute("data-steer-select", "");
-    selectBox.style.cssText = hoverBox.style.cssText;
-    document.body.appendChild(hoverBox);
-    document.body.appendChild(hoverLabel);
-    document.body.appendChild(selectBox);
+  // Estilo tipo herramienta de diseño (UX: "como Webflow"): crosshair
+  // global mientras Inspect está ON.
+  function setInspectCursor(on) {
+    if (on) {
+      if (!inspectStyle) {
+        inspectStyle = document.createElement("style");
+        inspectStyle.setAttribute("data-steer-cursor", "");
+        inspectStyle.textContent =
+          "[data-steer-inspecting] *{cursor:crosshair !important}";
+      }
+      document.documentElement.setAttribute("data-steer-inspecting", "");
+      document.head.appendChild(inspectStyle);
+    } else {
+      document.documentElement.removeAttribute("data-steer-inspecting");
+      if (inspectStyle) inspectStyle.remove();
+    }
   }
 
-  function boxFor(el) {
+  function ensureOverlayNodes() {
+    if (hoverBox) return;
+    function box(z) {
+      var d = document.createElement("div");
+      d.style.cssText =
+        "position:absolute;pointer-events:none;z-index:" + z +
+        ";margin:0;padding:0;";
+      document.body.appendChild(d);
+      return d;
+    }
+    // Espaciado estilo DevTools/Webflow: padding celeste, margin ámbar.
+    paddingBox = box(2147483643);
+    paddingBox.style.background = "rgba(147,197,253,0.35)";
+    marginBox = box(2147483642);
+    marginBox.style.background = "rgba(255,167,38,0.30)";
+    hoverBox = box(2147483646);
+    hoverBox.style.border = "2px solid " + OVERLAY_COLOR;
+    hoverBox.style.display = "none";
+    selectBox = box(2147483644);
+    selectBox.style.border = "2px solid " + OVERLAY_COLOR;
+    selectBox.style.display = "none";
+    hoverLabel = makeLabel(2147483647);
+    selectLabel = makeLabel(2147483645);
+  }
+
+  function makeLabel(z) {
+    var d = document.createElement("div");
+    d.style.cssText =
+      "position:absolute;pointer-events:none;z-index:" + z + ";display:none;" +
+      "font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;" +
+      "background:#0e0f11cc;color:#f2f3f5;padding:1px 6px;border-radius:4px;" +
+      "white-space:nowrap;";
+    document.body.appendChild(d);
+    return d;
+  }
+
+  function labelFor(el) {
+    var tag = (el.tagName || "").toLowerCase();
+    var cls = "";
+    try {
+      if (el.classList && el.classList.length > 0) {
+        cls = "." + el.classList[0];
+      }
+    } catch (_) {
+      /* svg y amigos sin classList usable */
+    }
     var r = el.getBoundingClientRect();
+    return tag + cls + "  " + Math.round(r.width) + "×" + Math.round(r.height);
+  }
+
+  function placeLabel(label, el) {
+    var r = el.getBoundingClientRect();
+    var x = r.left + window.scrollX;
+    var y = r.top + window.scrollY - 20;
+    if (y - window.scrollY < 2) y = r.top + window.scrollY + 2;
+    label.style.left = x + "px";
+    label.style.top = y + "px";
+    label.style.display = "block";
+  }
+
+  function rectsForSpacing(el) {
+    var cs = window.getComputedStyle(el);
+    var r = el.getBoundingClientRect();
+    function px(name) {
+      var n = parseFloat(cs[name]);
+      return Number.isFinite(n) ? n : 0;
+    }
+    function border(name) {
+      var m = /^(\d+(?:\.\d+)?)px/.exec(cs[name] || "");
+      return m ? parseFloat(m[1]) : 0;
+    }
+    var mT = px("marginTop"), mR = px("marginRight");
+    var mB = px("marginBottom"), mL = px("marginLeft");
+    var bT = border("borderTopWidth"), bR = border("borderRightWidth");
+    var bB = border("borderBottomWidth"), bL = border("borderLeftWidth");
     return {
-      left: r.left + "px",
-      top: r.top + "px",
-      width: r.width + "px",
-      height: r.height + "px",
+      margin: {
+        left: r.left + window.scrollX - mL,
+        top: r.top + window.scrollY - mT,
+        width: r.width + mL + mR,
+        height: r.height + mT + mB,
+      },
+      padding: {
+        left: r.left + window.scrollX + bL,
+        top: r.top + window.scrollY + bT,
+        width: r.width - bL - bR,
+        height: r.height - bT - bB,
+      },
     };
   }
 
-  function place(box, el) {
-    var r = boxFor(el);
-    box.style.left = r.left;
-    box.style.top = r.top;
-    box.style.width = r.width;
-    box.style.height = r.height;
-    box.style.display = "block";
+  function placeSpacing(el) {
+    ensureOverlayNodes();
+    var s = rectsForSpacing(el);
+    marginBox.style.left = s.margin.left + "px";
+    marginBox.style.top = s.margin.top + "px";
+    marginBox.style.width = s.margin.width + "px";
+    marginBox.style.height = s.margin.height + "px";
+    paddingBox.style.left = s.padding.left + "px";
+    paddingBox.style.top = s.padding.top + "px";
+    paddingBox.style.width = s.padding.width + "px";
+    paddingBox.style.height = s.padding.height + "px";
+    marginBox.style.display = "block";
+    paddingBox.style.display = "block";
+  }
+
+  function hideSpacing() {
+    if (marginBox) marginBox.style.display = "none";
+    if (paddingBox) paddingBox.style.display = "none";
   }
 
   // "src/components/Hero.tsx:42:6" → {file, line, col}; faltante → file ""
@@ -93,10 +185,6 @@
     var m = /^(.+?):(\d+):(\d+)$/.exec(value.trim());
     if (!m) return { file: "", line: 0, col: 0 };
     return { file: m[1], line: parseInt(m[2], 10), col: parseInt(m[3], 10) };
-  }
-
-  function sourceLabel(loc) {
-    return loc.file ? loc.file + ":" + loc.line : "";
   }
 
   function buildSelection(el) {
@@ -140,22 +228,19 @@
     if (now - lastMove < 32) return; // TRD §13: throttle 32ms
     lastMove = now;
     var el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el || el === hoverBox || el === hoverLabel || el === selectBox) return;
+    if (!el || el === hoverBox || el === hoverLabel || el === selectBox || el === selectLabel) return;
     ensureOverlayNodes();
     place(hoverBox, el);
-    var loc = parseSource(el);
-    var label = sourceLabel(loc);
-    hoverLabel.textContent = label || "sin " + SOURCE_ATTR;
-    var r = boxFor(el);
-    hoverLabel.style.left = r.left;
-    hoverLabel.style.top = r.top;
-    hoverLabel.style.display = "block";
+    placeLabel(hoverLabel, el);
+    hoverLabel.textContent = labelFor(el);
+    placeSpacing(el);
     send({ type: "steer:hover", selection: buildSelection(el) });
   }
 
   function onLeave() {
     if (hoverBox) hoverBox.style.display = "none";
     if (hoverLabel) hoverLabel.style.display = "none";
+    hideSpacing();
     send({ type: "steer:hover", selection: null });
   }
 
@@ -164,7 +249,7 @@
     e.preventDefault();
     e.stopPropagation();
     var el = document.elementFromPoint(e.clientX, e.clientY);
-    if (!el || el === hoverBox || el === hoverLabel || el === selectBox) return;
+    if (!el || el === hoverBox || el === hoverLabel || el === selectBox || el === selectLabel) return;
     selectedEl = el;
     if (!selectedEl.getAttribute("data-steer-id")) {
       steerCounter += 1;
@@ -175,14 +260,22 @@
     }
     ensureOverlayNodes();
     place(selectBox, el);
+    placeLabel(selectLabel, el);
+    selectLabel.textContent = labelFor(el);
+    placeSpacing(el);
     send({ type: "steer:select", id: selectedId, selection: buildSelection(el) });
   }
 
   function setInspect(on) {
     inspect = on;
+    setInspectCursor(on);
     if (on) {
       ensureOverlayNodes();
-      if (selectedEl) place(selectBox, selectedEl);
+      if (selectedEl) {
+        place(selectBox, selectedEl);
+        placeLabel(selectLabel, selectedEl);
+        selectLabel.textContent = labelFor(selectedEl);
+      }
       document.addEventListener("mousemove", onMove, true);
       document.addEventListener("mouseleave", onLeave, true);
       document.addEventListener("click", onClick, true);
@@ -196,6 +289,7 @@
       document.removeEventListener("mouseup", stopEvent, true);
       if (hoverBox) hoverBox.style.display = "none";
       if (hoverLabel) hoverLabel.style.display = "none";
+      hideSpacing();
       send({ type: "steer:hover", selection: null });
     }
   }
