@@ -320,6 +320,29 @@
   }
 
   // Overrides efímeros: un único <style data-steer-overlay> (TRD §6.2/§13).
+  // Tracking en vivo: cuando un override cambia el layout (padding,
+  // font-size…), el outline/label/spacing deben seguir al elemento.
+  // MutationObserver + ResizeObserver + scroll/resize, todo con rAF.
+  var rafPending = false;
+  function schedulePosition() {
+    if (rafPending) return;
+    rafPending = true;
+    requestAnimationFrame(function () {
+      rafPending = false;
+      positionSelection();
+      positionPins();
+    });
+  }
+
+  function positionSelection() {
+    if (!selectedEl) return;
+    ensureOverlayNodes();
+    place(selectBox, selectedEl);
+    placeLabel(selectLabel, selectedEl);
+    selectLabel.textContent = labelFor(selectedEl);
+    placeSpacing(selectedEl);
+  }
+
   function setOverrides(overrides) {
     if (!Array.isArray(overrides)) return;
     if (!styleEl) {
@@ -360,10 +383,12 @@
       css += "}";
     }
     styleEl.textContent = css;
+    schedulePosition(); // el layout pudo cambiar: seguir al elemento
   }
 
   function clearOverrides() {
     if (styleEl) styleEl.textContent = "";
+    schedulePosition();
   }
 
   function highlight(source) {
@@ -428,8 +453,17 @@
     }
   }
 
-  window.addEventListener("scroll", positionPins, true);
-  window.addEventListener("resize", positionPins);
+  window.addEventListener("scroll", schedulePosition, true);
+  window.addEventListener("resize", schedulePosition);
+
+  // Cambios del DOM (HMR, re-renders, overrides) → reposicionar overlay.
+  if (typeof MutationObserver !== "undefined") {
+    new MutationObserver(schedulePosition).observe(document.body, {
+      childList: true,
+      subtree: true,
+      attributes: true,
+    });
+  }
 
   function cssProp(camel) {
     return camel.replace(/[A-Z]/g, function (c) {

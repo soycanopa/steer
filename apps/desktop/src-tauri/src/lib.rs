@@ -26,13 +26,12 @@ pub fn run() {
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
         .run(|app, event| {
-            // Al salir: apagar proxy y matar solo los dev servers que
-            // Steer arrancó.
             if let tauri::RunEvent::Exit = event {
+                // Al salir: apagar el proxy. Los dev servers PERSISTEN a
+                // propósito — reabrir el mismo proyecto es instantáneo
+                // (TRD §4.1.4 reutiliza el puerto; el estado queda en tmp).
                 let proxy_handle = app.state::<proxy::ProxyHandle>().inner();
-                tauri::async_runtime::block_on(proxy::stop_all(&proxy_handle));
-                let map = app.state::<devserver::DevServerMap>().inner();
-                devserver::kill_all(map);
+                tauri::async_runtime::block_on(proxy::stop_all(proxy_handle));
             }
         });
 }

@@ -65,6 +65,22 @@ pub fn drain<R: std::io::Read + Send + 'static>(stream: R, sink: SharedLines) {
     });
 }
 
+/// Mata un grupo de procesos por pgid (para dueños leídos del archivo de
+/// estado, sin Child en mano).
+pub fn kill_pgid(pgid: i32) {
+    #[cfg(unix)]
+    {
+        // SAFETY: kill estándar sobre un pgid que nosotros creamos antes.
+        unsafe {
+            libc::kill(-pgid, libc::SIGTERM);
+        }
+        thread::sleep(Duration::from_millis(300));
+        unsafe {
+            libc::kill(-pgid, libc::SIGKILL);
+        }
+    }
+}
+
 /// Mata el grupo de procesos del child (SIGTERM, luego SIGKILL) y lo recoje.
 /// Unix-only vía pgid; en otros targets cae a child.kill().
 pub fn kill_tree(child: &mut Child) {

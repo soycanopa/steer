@@ -4,6 +4,7 @@
 // mata los procesos que ella misma arrancó.
 
 use std::collections::HashMap;
+use std::fs;
 use std::net::TcpStream;
 use std::path::Path;
 use std::process::Child;
@@ -36,6 +37,30 @@ pub fn new_map() -> DevServerMap {
     Mutex::new(HashMap::new())
 }
 
+// ---- Estado persistente del server (sobrevive al cierre de la app para
+// que reabrir un proyecto sea instantáneo; TRD §4.1.4 de reutilización).
+
+fn state_file() -> std::path::PathBuf {
+    std::env::temp_dir().join("steer-devserver.json")
+}
+
+fn read_state() -> Option<(String, i32)> {
+    let raw = fs::read_to_string(state_file()).ok()?;
+    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
+    let path = v.get("path")?.as_str()?.to_string();
+    let pgid = v.get("pgid")?.as_i64()? as i32;
+    Some((path, pgid))
+}
+
+fn write_state(path: &str, pgid: i32) {
+    let json = serde_json::json!({ "path": path, "pgid": pgid });
+    let _ = fs::write(state_file(), json.to_string());
+}
+
+fn clear_state() {
+    let _ = fs::remove_file(state_file());
+}
+
 #[tauri::command]
 pub fn project_dev_start(
     path: String,
@@ -58,12 +83,28 @@ pub fn project_dev_start(
         }
     }
 
-    // 2. Convención :3000 ya responde → reutilizar, no matar (TRD §4.1.4).
-    if let Some(url) = probe_convention_port() {
-        return Ok(DevStartInfo {
-            url,
-            spawned: false,
-        });
+    // 2. Dueño persistente (sesiones anteriores): si el server vivo en la
+    //    convención :3000 es del MISMO proyecto, reutilizar → reopen
+    //    instantáneo. Si es de OTRO proyecto, matarlo antes de arrancar.
+    match read_state() {
+        Some((state_path, pgid)) => {
+            if state_path == path {
+                if let Some(url) = probe_convention_port() {
+                    return Ok(DevStartInfo { url, spawned: false });
+                }
+                clear_state(); // server ya muerto
+            } else if probe_convention_port().is_some() {
+                process::kill_pgid(pgid);
+                clear_state();
+            }
+        }
+        None => {
+            // Sin estado propio: puerto vivo = server ajeno → TRD §4.1.4
+            // (reutilizar, nunca matar lo que no es nuestro).
+            if let Some(url) = probe_convention_port() {
+                return Ok(DevStartInfo { url, spawned: false });
+            }
+        }
     }
     // 3. Script `dev` presente.
     let pkg = crate::project::read_package_json(root)?;
@@ -111,10 +152,12 @@ pub fn project_dev_start(
 
     match url {
         Some(url) => {
+            let pgid = child.id() as i32;
             state
                 .lock()
                 .expect("devserver map poisoned")
-                .insert(path, ManagedDev { child, url: url.clone() });
+                .insert(path.clone(), ManagedDev { child, url: url.clone() });
+            write_state(&path, pgid);
             Ok(DevStartInfo { url, spawned: true })
         }
         None => {
@@ -133,15 +176,7 @@ pub fn project_dev_stop(path: String, state: tauri::State<'_, DevServerMap>) {
     if let Ok(mut map) = state.lock() {
         if let Some(mut dev) = map.remove(&path) {
             process::kill_tree(&mut dev.child);
-        }
-    }
-}
-
-/// Cleanup al salir de la app: no dejar vite huérfano.
-pub fn kill_all(map: &DevServerMap) {
-    if let Ok(mut map) = map.lock() {
-        for (_, mut dev) in map.drain() {
-            process::kill_tree(&mut dev.child);
+            clear_state();
         }
     }
 }
