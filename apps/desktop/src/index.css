@@ -1,0 +1,25 @@
+@import "tailwindcss";
+/* Tokens de diseño viven en @steer/ui (UI.md §2) */
+@import "@steer/ui/tokens.css";
+/* Tailwind v4 no escanea node_modules: apunta al src de los workspace packages */
+@source "../../../packages/ui/src";
+
+@theme {
+  --font-sans: "IBM Plex Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg-0);
+  color: var(--text-0);
+  font-family: var(--font-ui);
+  font-size: var(--fs-2);
+  -webkit-font-smoothing: antialiased;
+}
