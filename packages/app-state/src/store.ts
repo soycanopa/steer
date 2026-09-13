@@ -70,6 +70,10 @@ export type SteerState = ProjectSlice &
     setDraftNote(text: string): void;
     /** Columna de chat: mostrar/ocultar (toggle del titlebar). */
     toggleChat(on?: boolean): void;
+    /** Panel de capas: mostrar/ocultar (toggle del titlebar). */
+    toggleLayers(on?: boolean): void;
+    /** Selecciona un nodo desde el árbol de capas. */
+    selectLayer(id: string): void;
     /** Historial: crear sesión nueva y activarla. */
     newSession(): void;
     selectSession(id: string): void;
@@ -352,6 +356,14 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
       set({ chatOpen: on ?? !get().chatOpen });
     },
 
+    toggleLayers(on) {
+      set({ layersOpen: on ?? !get().layersOpen });
+    },
+
+    selectLayer(id) {
+      previewPort.selectNode(id);
+    },
+
     newSession() {
       const { sessions, activeSessionId } = get();
       const current = sessions.find((s) => s.id === activeSessionId);
@@ -390,6 +402,9 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
         // UX §5.9: la cola de intents (Fase E) se conservará; los drafts
         // de override son del documento anterior y se limpian.
         store.setState({ selection: null, selectedId: null, hoverSelection: null, tweaks: [], tweakLog: [] });
+        break;
+      case "steer:tree":
+        store.setState({ tree: msg.nodes });
         break;
       default:
         break;

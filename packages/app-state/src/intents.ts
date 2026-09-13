@@ -4,6 +4,7 @@
 // deja el lote en el transcript de la sesión activa (criterio de
 // hecho). La F muestra la llamada real y ancla agentSessionId.
 import type { ApplyPayload, Intent } from "@steer/domain";
+import type { LayerNode } from "@steer/ports";
 
 export type TranscriptBlock =
   | { kind: "user"; id: string; text: string }
@@ -34,6 +35,10 @@ export type IntentsSlice = {
   activeSessionId: string;
   /** Visibilidad de la columna de chat (toggle del titlebar). */
   chatOpen: boolean;
+  /** Visibilidad del panel de capas (toggle del titlebar). */
+  layersOpen: boolean;
+  /** Árbol de capas empujado por el bridge (null = aún sin árbol). */
+  tree: LayerNode[] | null;
   /** Siguiente número de pin (#1, #2… UX §5.5). */
   nextPin: number;
   /** Nota del composer que viaja como userNote del ApplyPayload. */
@@ -48,6 +53,8 @@ export function initialIntents(): IntentsSlice {
     sessions: [session],
     activeSessionId: session.id,
     chatOpen: true,
+    layersOpen: true,
+    tree: null,
     nextPin: 1,
     draftNote: "",
   };

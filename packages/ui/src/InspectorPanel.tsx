@@ -22,9 +22,11 @@ import {
 import type { Scope, Selection, TweakProp } from "@steer/domain";
 import {
   alignFromComputed,
+  boxToCss,
   colorToHex,
   numFromPx,
   opacityFromComputed,
+  parseBoxValues,
   pxValue,
 } from "@steer/domain";
 
@@ -199,27 +201,42 @@ function SpacingVisual({
   onSet(prop: TweakProp, to: string): void;
   onReset(prop: TweakProp): void;
 }) {
+  const marginVals = parseBoxValues(marginTweak ? marginTweak.to : selection.computed.margin);
+  const paddingVals = parseBoxValues(paddingTweak ? paddingTweak.to : selection.computed.padding);
+
   return (
     <div className="mb-3">
       <Ring
         prop="margin"
         label="Margin"
-        selection={selection}
-        tweak={marginTweak}
+        tag={selection.tag}
+        vals={marginVals}
+        dirty={marginTweak !== undefined}
+        from={marginTweak?.from ?? null}
         ringClass="border-amber-400/50 bg-amber-400/10"
         inputClass="border-amber-400/40"
-        onSet={onSet}
+        onSide={(i, n) => {
+          const next = [...marginVals] as [number, number, number, number];
+          next[i] = n;
+          onSet("margin", boxToCss(next));
+        }}
         onReset={onReset}
       />
       <div className="-mx-0.5 -mt-1">
         <Ring
           prop="padding"
           label="Padding"
-          selection={selection}
-          tweak={paddingTweak}
+          tag={selection.tag}
+          vals={paddingVals}
+          dirty={paddingTweak !== undefined}
+          from={paddingTweak?.from ?? null}
           ringClass="border-sky-400/50 bg-sky-400/10"
           inputClass="border-sky-400/40"
-          onSet={onSet}
+          onSide={(i, n) => {
+            const next = [...paddingVals] as [number, number, number, number];
+            next[i] = n;
+            onSet("padding", boxToCss(next));
+          }}
           onReset={onReset}
         />
       </div>
@@ -230,35 +247,37 @@ function SpacingVisual({
 function Ring({
   prop,
   label,
-  selection,
-  tweak,
+  tag,
+  vals,
+  dirty,
+  from,
   ringClass,
   inputClass,
-  onSet,
+  onSide,
   onReset,
 }: {
   prop: TweakProp;
   label: string;
-  selection: Selection;
-  tweak: TweakView | undefined;
+  tag: string;
+  vals: [number, number, number, number];
+  dirty: boolean;
+  from: string | null;
   ringClass: string;
   inputClass: string;
-  onSet(prop: TweakProp, to: string): void;
+  onSide(i: 0 | 1 | 2 | 3, n: number): void;
   onReset(prop: TweakProp): void;
 }) {
-  const computed = selection.computed[prop];
-  const dirty = tweak !== undefined;
-  const value = dirty ? numFromPx(tweak.to) ?? 0 : numFromPx(computed) ?? 0;
+  const SIDES = ["top", "right", "bottom", "left"] as const;
 
-  const mini = (side: string) => (
+  const mini = (i: 0 | 1 | 2 | 3) => (
     <input
       type="text"
       inputMode="numeric"
-      value={String(value)}
-      aria-label={`${label} ${side}`}
+      value={String(vals[i])}
+      aria-label={`${label} ${SIDES[i]}`}
       onChange={(e) => {
         const n = Number(/(\d+(?:\.\d+)?)/.exec(e.target.value)?.[1] ?? NaN);
-        if (Number.isFinite(n)) onSet(prop, pxValue(n));
+        if (Number.isFinite(n)) onSide(i, n);
       }}
       className={`h-6 w-10 rounded-[4px] border bg-[var(--bg-2)] text-center font-mono text-[length:var(--fs-0)] text-[var(--text-1)] outline-none focus:border-[var(--accent)] focus:text-[var(--text-0)] ${inputClass}`}
     />
@@ -276,31 +295,31 @@ function Ring({
         </span>
         {dirty ? (
           <>
-            <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-              {tweak.from} → <span className="text-[var(--accent)]">{tweak.to}</span>
+            <span className="truncate font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
+              {from} → <span className="text-[var(--accent)]">{vals[0]}px {vals[1]}px {vals[2]}px {vals[3]}px</span>
             </span>
             <button
               type="button"
               onClick={() => onReset(prop)}
               title={`Reset ${label.toLowerCase()}`}
-              className="text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
+              className="shrink-0 text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
             >
               <RotateCcw size={11} strokeWidth={1.75} />
             </button>
           </>
         ) : null}
       </div>
-      <div className="flex justify-center">{mini("top")}</div>
+      <div className="flex justify-center">{mini(0)}</div>
       <div className="my-1.5 flex items-center justify-between gap-1">
-        {mini("left")}
+        {mini(1)}
         {prop === "padding" ? (
           <span className="rounded-md border border-dashed border-[var(--line)] bg-[var(--bg-1)] px-3 py-1 text-[10px] text-[var(--text-2)]">
-            {selection.tag}
+            {tag}
           </span>
         ) : null}
-        {mini("right")}
+        {mini(3)}
       </div>
-      <div className="flex justify-center">{mini("bottom")}</div>
+      <div className="flex justify-center">{mini(2)}</div>
     </div>
   );
 }

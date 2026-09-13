@@ -5,12 +5,44 @@ import {
   ChatPanel,
   EmptyState,
   InspectorPanel,
+  LayersPanel,
   PreviewFrame,
   SplitPane,
 } from "@steer/ui";
 import { setFrameEl, store } from "./composition";
 import { DebugDrawer } from "./DebugDrawer";
 import { pickDirectory } from "./tauri/dialog";
+
+
+// Capas: mapa del árbol del bridge al view model, marcando activo el
+// nodo cuya source coincide con la selección actual.
+function mapTree(
+  nodes: Array<{ id: string; tag: string; cls: string | null; text: string | null; source: string | null; children: unknown[] }> | null,
+  activeSource: { file: string; line: number; col: number } | null,
+): Array<{
+  id: string;
+  tag: string;
+  cls: string | null;
+  text: string | null;
+  source: string | null;
+  active: boolean;
+  children: ReturnType<typeof mapTree>;
+}> {
+  if (nodes === null) return [];
+  const activeKey =
+    activeSource === null
+      ? null
+      : `${activeSource.file}:${activeSource.line}:${activeSource.col}`;
+  return nodes.map((n) => ({
+    id: n.id,
+    tag: n.tag,
+    cls: n.cls,
+    text: n.text,
+    source: n.source,
+    active: n.source !== null && n.source === activeKey,
+    children: mapTree(n.children as never, activeSource),
+  }));
+}
 
 export default function App() {
   const [debugOpen, setDebugOpen] = useState(false);
@@ -28,6 +60,8 @@ export default function App() {
   const scope = useStore(store, (s) => s.scope);
   const tweaks = useStore(store, (s) => s.tweaks);
   const queue = useStore(store, (s) => s.queue);
+  const tree = useStore(store, (s) => s.tree);
+  const layersOpen = useStore(store, (s) => s.layersOpen);
   const sessions = useStore(store, (s) => s.sessions);
   const activeSessionId = useStore(store, (s) => s.activeSessionId);
   const chatOpen = useStore(store, (s) => s.chatOpen);
@@ -136,11 +170,21 @@ export default function App() {
         devStatus={devStatus}
         mode={inspectOn ? "inspect" : "interact"}
         queueCount={queue.length}
+        layersOpen={layersOpen}
+        onToggleLayers={() => store.getState().toggleLayers()}
         chatOpen={chatOpen}
         onToggleChat={() => store.getState().toggleChat()}
       >
         <DebugDrawer open={debugOpen} />
         <SplitPane
+          layers={
+            layersOpen ? (
+              <LayersPanel
+                nodes={mapTree(tree, selection?.source ?? null)}
+                onSelect={(id) => store.getState().selectLayer(id)}
+              />
+            ) : null
+          }
           left={
             <PreviewFrame
               url={previewUrl}

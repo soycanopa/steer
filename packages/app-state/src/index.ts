@@ -7,8 +7,7 @@ export type {
   ChatSession,
   IntentsSlice,
   TranscriptBlock,
-} from "./intents";
-export { initialIntents, newChatSession } from "./intents";
+} from "./intents";export { initialIntents, newChatSession } from "./intents";
 export { createAppStore } from "./store";
 export type { AppDeps, PrefsApi, SteerState, SteerStore } from "./store";
 

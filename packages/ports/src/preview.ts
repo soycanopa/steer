@@ -5,6 +5,16 @@
 
 import type { OverlayOverride, Selection, SourceLoc } from "@steer/domain";
 
+/** Nodo del árbol de capas (Fase layers): espejo liviano del DOM. */
+export type LayerNode = {
+  id: string; // id efímero asignado por el bridge en cada push
+  tag: string;
+  cls: string | null;
+  text: string | null; // primer texto propio, ~40 chars
+  source: string | null; // "file:line:col" del data-tsd-source
+  children: LayerNode[];
+};
+
 export type ParentToFrame =
   | { type: "steer:inspect-on" }
   | { type: "steer:inspect-off" }
@@ -14,7 +24,9 @@ export type ParentToFrame =
   // Pins de comentarios (Fase E): badges numerados anclados al nodo.
   | { type: "steer:add-pin"; intentId: string; steerId: string; number: number }
   | { type: "steer:remove-pin"; intentId: string }
-  | { type: "steer:clear-pins" };
+  | { type: "steer:clear-pins" }
+  // Layers (Fase layers): seleccionar un nodo desde el árbol de capas.
+  | { type: "steer:select-node"; id: string };
 
 export type FrameToParent =
   | { type: "steer:ready" }
@@ -22,7 +34,10 @@ export type FrameToParent =
   /** `id` = data-steer-id que el bridge asignó al nodo clickeado
    *  (Fase D: el parent lo necesita para direccionar overrides). */
   | { type: "steer:select"; id: string; selection: Selection }
-  | { type: "steer:navigate"; href: string };
+  | { type: "steer:navigate"; href: string }
+  /** Árbol de capas (Fase layers): push automático en ready, navigate
+   *  y con debounce tras mutaciones del DOM. */
+  | { type: "steer:tree"; nodes: LayerNode[] };
 
 export type PreviewPort = {
   setInspect(on: boolean): void;
@@ -32,5 +47,7 @@ export type PreviewPort = {
   addPin(intentId: string, steerId: string, number: number): void;
   removePin(intentId: string): void;
   clearPins(): void;
+  /** Selecciona un nodo desde el árbol de capas. */
+  selectNode(id: string): void;
   subscribe(handler: (msg: FrameToParent) => void): () => void;
 };

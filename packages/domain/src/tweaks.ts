@@ -56,6 +56,34 @@ export function colorToHex(value: string | undefined): string | null {
   return `#${r}${g}${b}`;
 }
 
+/** "0px" | "0px 24px" | "8px 16px 4px 32px" → [t, r, b, l] (reglas CSS
+ *  del shorthand). Valores no numéricos (auto) cuentan como 0. */
+export function parseBoxValues(
+  css: string | undefined,
+): [number, number, number, number] {
+  const nums: number[] = [];
+  if (css !== undefined) {
+    const matches = css.match(/-?\d+(?:\.\d+)?/g);
+    if (matches !== null) {
+      for (const s of matches) {
+        const n = Number(s);
+        if (Number.isFinite(n)) nums.push(n);
+      }
+    }
+  }
+  const at = (i: number): number => nums[i] ?? 0;
+  if (nums.length === 0) return [0, 0, 0, 0];
+  if (nums.length === 1) return [at(0), at(0), at(0), at(0)];
+  if (nums.length === 2) return [at(0), at(1), at(0), at(1)];
+  if (nums.length === 3) return [at(0), at(1), at(2), at(1)];
+  return [at(0), at(1), at(2), at(3)];
+}
+
+/** Cuatro lados → shorthand CSS de 4 valores. */
+export function boxToCss(v: [number, number, number, number]): string {
+  return `${v[0]}px ${v[1]}px ${v[2]}px ${v[3]}px`;
+}
+
 /** oklch(L C H[/α]) → hex. Tailwind v4 emite colores computed en oklch.
  *  Conversión estándar OKLab → sRGB lineal → gamma 2.4. */
 export function oklchToHex(value: string): string | null {

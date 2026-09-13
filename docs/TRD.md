@@ -177,7 +177,9 @@ type ParentToFrame =
   // Pins (Fase E): badge numerado anclado al nodo data-steer-id.
   | { type: "steer:add-pin"; intentId: string; steerId: string; number: number }
   | { type: "steer:remove-pin"; intentId: string }
-  | { type: "steer:clear-pins" };
+  | { type: "steer:clear-pins" }
+  // Capas (Fase layers): seleccionar un nodo desde el árbol.
+  | { type: "steer:select-node"; id: string };
 ```
 
 iframe → parent
@@ -189,7 +191,9 @@ type FrameToParent =
   // id = data-steer-id que el bridge asignó al nodo clickeado (Fase D);
   // el parent lo necesita para direccionar los overrides al nodo exacto.
   | { type: "steer:select"; id: string; selection: Selection }
-  | { type: "steer:navigate"; href: string };
+  | { type: "steer:navigate"; href: string }
+  // Árbol de capas: push en ready/navigate y con debounce al mutar DOM.
+  | { type: "steer:tree"; nodes: LayerNode[] };
 ```
 
 `Selection` se construye así:

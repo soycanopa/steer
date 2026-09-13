@@ -209,6 +209,13 @@
         })
       );
     }
+    // Lados individuales de padding/margin (edición T/R/B/L).
+    ["padding", "margin"].forEach(function (p) {
+      ["top", "right", "bottom", "left"].forEach(function (side) {
+        var key = p + side.charAt(0).toUpperCase() + side.slice(1);
+        props[key] = computed.getPropertyValue(p + "-" + side);
+      });
+    });
     var loc = parseSource(el);
     var tag = (el.tagName || "").toLowerCase();
     var component = null;
@@ -270,6 +277,11 @@
     e.stopPropagation();
     var el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el || el === hoverBox || el === hoverLabel || el === selectBox || el === selectLabel) return;
+    selectElement(el);
+  }
+
+  // Ruta común de selección: click en canvas o click en el árbol de capas.
+  function selectElement(el) {
     selectedEl = el;
     if (!selectedEl.getAttribute("data-steer-id")) {
       steerCounter += 1;
@@ -284,6 +296,67 @@
     selectLabel.textContent = labelFor(el);
     placeSpacing(el);
     send({ type: "steer:select", id: selectedId, selection: buildSelection(el) });
+  }
+
+  // ---- Árbol de capas (Fase layers) — espejo liviano del DOM.
+  var treeIndex = {}; // node.id → elemento
+  var treeTimer = null;
+
+  function scheduleTree() {
+    clearTimeout(treeTimer);
+    treeTimer = setTimeout(pushTree, 500);
+  }
+
+  function pushTree() {
+    treeIndex = {};
+    var count = 0;
+    function walk(el, depth) {
+      if (!el || depth > 10 || count > 400) return null;
+      var tag = el.tagName ? el.tagName.toLowerCase() : "";
+      if (
+        tag === "script" ||
+        tag === "style" ||
+        tag === "link" ||
+        tag === "meta" ||
+        tag === "head" ||
+        el.hasAttribute("data-steer-id-overlay")
+      ) {
+        return null;
+      }
+      count += 1;
+      var id = "n" + count;
+      treeIndex[id] = el;
+      var text = null;
+      for (var t = 0; t < el.childNodes.length; t++) {
+        var ch = el.childNodes[t];
+        if (ch.nodeType === 3 && ch.nodeValue && ch.nodeValue.trim() !== "") {
+          text = ch.nodeValue.trim().slice(0, 40);
+          break;
+        }
+      }
+      var loc = parseSource(el);
+      var node = {
+        id: id,
+        tag: tag,
+        cls:
+          el.classList && el.classList.length > 0 ? el.classList[0] : null,
+        text: text,
+        source: loc.file ? loc.file + ":" + loc.line + ":" + loc.col : null,
+        children: [],
+      };
+      for (var c = 0; c < el.children.length; c++) {
+        var child = walk(el.children[c], depth + 1);
+        if (child) node.children.push(child);
+      }
+      return node;
+    }
+    var root = document.body ? walk(document.body, 0) : null;
+    send({ type: "steer:tree", nodes: root ? [root] : [] });
+  }
+
+  function selectNode(id) {
+    var el = treeIndex[id];
+    if (el) selectElement(el);
   }
 
   function setInspect(on) {
@@ -484,9 +557,13 @@
   window.addEventListener("scroll", schedulePosition, true);
   window.addEventListener("resize", schedulePosition);
 
-  // Cambios del DOM (HMR, re-renders, overrides) → reposicionar overlay.
+  // Cambios del DOM (HMR, re-renders, overrides) → reposicionar overlay
+  // y refrescar el árbol de capas con debounce.
   if (typeof MutationObserver !== "undefined") {
-    new MutationObserver(schedulePosition).observe(document.body, {
+    new MutationObserver(function () {
+      schedulePosition();
+      scheduleTree();
+    }).observe(document.body, {
       childList: true,
       subtree: true,
       attributes: true,
@@ -556,6 +633,9 @@
       case "steer:remove-pin":
         removePin(msg.intentId);
         break;
+      case "steer:select-node":
+        selectNode(msg.id);
+        break;
       case "steer:clear-pins":
         clearPins();
         break;
@@ -565,4 +645,5 @@
   });
 
   send({ type: "steer:ready" });
+  scheduleTree();
 })();

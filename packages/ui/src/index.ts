@@ -10,6 +10,8 @@ export type {
   PinView,
   TweakView,
 } from "./InspectorPanel";
+export { LayersPanel } from "./LayersPanel";
+export type { LayersPanelProps, LayerNodeView } from "./LayersPanel";
 export { PreviewFrame } from "./PreviewFrame";
 export type {
   PreviewFrameProps,

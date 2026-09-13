@@ -48,6 +48,7 @@ export function createIframePreviewPort(
       post({ type: "steer:add-pin", intentId, steerId, number }),
     removePin: (intentId) => post({ type: "steer:remove-pin", intentId }),
     clearPins: () => post({ type: "steer:clear-pins" }),
+    selectNode: (id) => post({ type: "steer:select-node", id }),
     subscribe: (handler) => {
       handlers.add(handler);
       return () => handlers.delete(handler);

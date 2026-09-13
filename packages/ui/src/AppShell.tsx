@@ -3,7 +3,7 @@
 // (ARCHITECTURE §3).
 
 import type { ReactNode } from "react";
-import { MessageSquare } from "lucide-react";
+import { Layers, MessageSquare } from "lucide-react";
 import { Statusbar } from "./Statusbar";
 
 export type AppShellProps = {
@@ -13,6 +13,8 @@ export type AppShellProps = {
   devStatus: "live" | "down" | "idle";
   mode: "inspect" | "interact";
   queueCount: number;
+  layersOpen: boolean;
+  onToggleLayers(): void;
   chatOpen: boolean;
   onToggleChat(): void;
   children: ReactNode;
@@ -24,6 +26,8 @@ export function AppShell({
   devStatus,
   mode,
   queueCount,
+  layersOpen,
+  onToggleLayers,
   chatOpen,
   onToggleChat,
   children,
@@ -44,6 +48,18 @@ export function AppShell({
           {projectPath}
         </span>
         <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onToggleLayers}
+            title={layersOpen ? "Ocultar capas" : "Mostrar capas"}
+            className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 ${
+              layersOpen
+                ? "bg-[var(--accent)] text-white"
+                : "text-[var(--text-1)] hover:bg-[var(--bg-3)]"
+            }`}
+          >
+            <Layers size={14} strokeWidth={1.75} />
+          </button>
           <button
             type="button"
             onClick={onToggleChat}
