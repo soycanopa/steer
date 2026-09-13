@@ -384,7 +384,34 @@
       css += "}";
     }
     styleEl.textContent = css;
+    // Edición de espaciado en vivo: mostrar las capas del seleccionado y
+    // enfatizar el anillo que se está editando (margin ámbar / padding
+    // celeste), aunque el mouse esté en el panel.
+    if (selectedEl) {
+      var editing = {};
+      for (var k = 0; k < overrides.length; k++) {
+        if (overrides[k] && overrides[k].prop) editing[overrides[k].prop] = true;
+      }
+      ensureOverlayNodes();
+      placeSpacing(selectedEl);
+      if (editing.margin) emphasizeSpacing("margin");
+      if (editing.padding) emphasizeSpacing("padding");
+    }
     schedulePosition(); // el layout pudo cambiar: seguir al elemento
+  }
+
+  function emphasizeSpacing(prop) {
+    var target = prop === "margin" ? marginBox : paddingBox;
+    if (!target) return;
+    target.style.background =
+      prop === "margin" ? "rgba(255,170,60,0.55)" : "rgba(120,180,255,0.60)";
+    target.style.border = "1px dashed " + (prop === "margin" ? "#ffaa3c" : "#78b4ff");
+    clearTimeout(target.__steerEmph);
+    target.__steerEmph = setTimeout(function () {
+      target.style.background =
+        prop === "margin" ? "rgba(255,170,60,0.32)" : "rgba(120,180,255,0.35)";
+      target.style.border = "none";
+    }, 900);
   }
 
   function clearOverrides() {
