@@ -4,3 +4,4 @@ src-tauri/target/
 fixtures/
 .DS_Store
 *.local
+.zcode/
