@@ -284,10 +284,15 @@ where
 {
     use tokio_tungstenite::tungstenite::Message as WsMessage;
 
-    let (upstream, _resp) = match tokio_tungstenite::connect_async(&target).await {
+    // tungstenite solo acepta ws:// / wss://; el target viene como http(s).
+    let ws_target = target
+        .replacen("http://", "ws://", 1)
+        .replacen("https://", "wss://", 1);
+
+    let (upstream, _resp) = match tokio_tungstenite::connect_async(&ws_target).await {
         Ok(pair) => pair,
         Err(e) => {
-            eprintln!("steer:proxy ws upstream connect falló ({target}): {e}");
+            eprintln!("steer:proxy ws upstream connect falló ({ws_target}): {e}");
             return;
         }
     };
