@@ -79,6 +79,9 @@ export default function App() {
         devStatus={devStatus}
       >
         <SplitPane
+          // El Inspector solo aparece con un nodo seleccionado; el iframe
+          // queda en la misma posición del árbol para no remontarse.
+          leftPct={selection !== null ? 62 : 100}
           left={
             <PreviewFrame
               url={previewUrl}
@@ -93,15 +96,17 @@ export default function App() {
             />
           }
           right={
-            <InspectorPanel
-              selection={selection}
-              scope={scope}
-              tweaks={currentTweaks}
-              onSetScope={(s) => store.getState().setScope(s)}
-              onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
-              onResetTweak={(prop) => store.getState().resetTweak(prop)}
-              onResetAll={() => store.getState().resetAllTweaks()}
-            />
+            selection !== null ? (
+              <InspectorPanel
+                selection={selection}
+                scope={scope}
+                tweaks={currentTweaks}
+                onSetScope={(s) => store.getState().setScope(s)}
+                onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
+                onResetTweak={(prop) => store.getState().resetTweak(prop)}
+                onResetAll={() => store.getState().resetAllTweaks()}
+              />
+            ) : null
           }
         />
       </AppShell>
