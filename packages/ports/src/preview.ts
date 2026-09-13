@@ -10,7 +10,11 @@ export type ParentToFrame =
   | { type: "steer:inspect-off" }
   | { type: "steer:set-overrides"; overrides: OverlayOverride[] }
   | { type: "steer:clear-overrides" }
-  | { type: "steer:highlight"; source: SourceLoc | null };
+  | { type: "steer:highlight"; source: SourceLoc | null }
+  // Pins de comentarios (Fase E): badges numerados anclados al nodo.
+  | { type: "steer:add-pin"; intentId: string; steerId: string; number: number }
+  | { type: "steer:remove-pin"; intentId: string }
+  | { type: "steer:clear-pins" };
 
 export type FrameToParent =
   | { type: "steer:ready" }
@@ -25,5 +29,8 @@ export type PreviewPort = {
   setOverrides(overrides: OverlayOverride[]): void;
   clearOverrides(): void;
   highlight(source: SourceLoc | null): void;
+  addPin(intentId: string, steerId: string, number: number): void;
+  removePin(intentId: string): void;
+  clearPins(): void;
   subscribe(handler: (msg: FrameToParent) => void): () => void;
 };

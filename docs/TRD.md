@@ -172,7 +172,11 @@ type ParentToFrame =
   | { type: "steer:inspect-off" }
   | { type: "steer:set-overrides"; overrides: OverlayOverride[] }
   | { type: "steer:clear-overrides" }
-  | { type: "steer:highlight"; source: SourceLoc | null };
+  | { type: "steer:highlight"; source: SourceLoc | null }
+  // Pins (Fase E): badge numerado anclado al nodo data-steer-id.
+  | { type: "steer:add-pin"; intentId: string; steerId: string; number: number }
+  | { type: "steer:remove-pin"; intentId: string }
+  | { type: "steer:clear-pins" };
 ```
 
 iframe → parent

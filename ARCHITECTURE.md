@@ -152,6 +152,9 @@ export type PreviewPort = {
   setOverrides(overrides: OverlayOverride[]): void;
   clearOverrides(): void;
   highlight(source: SourceLoc | null): void;
+  addPin(intentId: string, steerId: string, number: number): void;
+  removePin(intentId: string): void;
+  clearPins(): void;
   subscribe(handler: (msg: FrameToParent) => void): () => void;
 };
 ```
