@@ -1,7 +1,7 @@
 import { useEffect } from "react";
 import { useStore } from "zustand";
 import { AppShell, EmptyState, PreviewFrame } from "@steer/ui";
-import { store } from "./composition";
+import { setFrameEl, store } from "./composition";
 import { pickDirectory } from "./tauri/dialog";
 
 export default function App() {
@@ -13,6 +13,8 @@ export default function App() {
   const previewUrl = useStore(store, (s) => s.previewUrl);
   const previewError = useStore(store, (s) => s.previewError);
   const reloadNonce = useStore(store, (s) => s.reloadNonce);
+  const inspectOn = useStore(store, (s) => s.inspectOn);
+  const selection = useStore(store, (s) => s.selection);
 
   useEffect(() => {
     void store.getState().bootstrap();
@@ -23,12 +25,28 @@ export default function App() {
     if (path) await store.getState().openProject(path);
   }
 
-  // UX.md §7: ⌘O abre proyecto desde cualquier pantalla.
+  // UX.md §7: ⌘O abre, I alterna Inspect, Esc deselecciona (focus fuera
+  // de inputs; los atajos del composer llegan con el chat, Fase E).
   useEffect(() => {
+    const isTyping = (e: KeyboardEvent) => {
+      const t = e.target;
+      return (
+        t instanceof HTMLInputElement ||
+        t instanceof HTMLTextAreaElement ||
+        (t instanceof HTMLElement && t.isContentEditable)
+      );
+    };
     const onKey = (e: KeyboardEvent) => {
       if (e.metaKey && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "o") {
         e.preventDefault();
         void openViaDialog();
+        return;
+      }
+      if (isTyping(e)) return;
+      if (e.key.toLowerCase() === "i" && !e.metaKey && !e.ctrlKey && !e.altKey) {
+        store.getState().toggleInspect();
+      } else if (e.key === "Escape") {
+        store.getState().deselect();
       }
     };
     window.addEventListener("keydown", onKey);
@@ -50,8 +68,12 @@ export default function App() {
           status={previewStatus}
           error={previewError}
           iframeKey={`${previewUrl ?? "none"}#${reloadNonce}`}
+          inspectOn={inspectOn}
+          selection={selection}
+          onToggleInspect={() => store.getState().toggleInspect()}
           onReload={() => store.getState().reloadPreview()}
           onRetry={() => void store.getState().startPreview()}
+          onFrameEl={setFrameEl}
         />
       </AppShell>
     );
