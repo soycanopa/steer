@@ -310,19 +310,40 @@
   function pushTree() {
     treeIndex = {};
     var count = 0;
-    function walk(el, depth) {
-      if (!el || depth > 10 || count > 400) return null;
+    // Basura que no aporta al árbol: overlays propios, devtools
+    // inyectados (p. ej. tanstack-devtools-*) y wrappers vacíos.
+    function isJunk(el) {
       var tag = el.tagName ? el.tagName.toLowerCase() : "";
       if (
         tag === "script" ||
         tag === "style" ||
         tag === "link" ||
         tag === "meta" ||
-        tag === "head" ||
-        el.hasAttribute("data-steer-id-overlay")
+        tag === "head"
       ) {
-        return null;
+        return true;
       }
+      for (var i = 0; i < el.attributes.length; i++) {
+        if (el.attributes[i].name.indexOf("data-steer") === 0) return true;
+      }
+      if (tag.indexOf("devtools") !== -1 || tag.indexOf("tanstack-") === 0) {
+        return true;
+      }
+      if (
+        tag === "div" &&
+        el.children.length === 0 &&
+        !el.textContent.trim() &&
+        !el.getAttribute("data-tsd-source") &&
+        !el.id &&
+        !el.className
+      ) {
+        return true;
+      }
+      return false;
+    }
+    function walk(el, depth) {
+      if (!el || depth > 10 || count > 400) return null;
+      if (isJunk(el)) return null;
       count += 1;
       var id = "n" + count;
       treeIndex[id] = el;
