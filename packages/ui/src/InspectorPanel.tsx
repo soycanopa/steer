@@ -473,6 +473,7 @@ const LABELS: Record<TweakProp, string> = {
   backgroundColor: "Fondo",
   textAlign: "Align",
   padding: "Padding",
+  margin: "Margin",
   gap: "Gap",
   borderRadius: "Radius",
   opacity: "Opacity",
