@@ -181,7 +181,9 @@ iframe → parent
 type FrameToParent =
   | { type: "steer:ready" }
   | { type: "steer:hover"; selection: Selection | null }
-  | { type: "steer:select"; selection: Selection }
+  // id = data-steer-id que el bridge asignó al nodo clickeado (Fase D);
+  // el parent lo necesita para direccionar los overrides al nodo exacto.
+  | { type: "steer:select"; id: string; selection: Selection }
   | { type: "steer:navigate"; href: string };
 ```
 
@@ -207,6 +209,8 @@ El bridge mantiene un `<style data-steer-overlay>`:
 ```
 
 Asigna `data-steer-id` al nodo seleccionado. Nunca escribe al filesystem. `clear-overrides` elimina el style y los attrs.
+
+Selector por scope (Fase D): scope `instance` → `[data-steer-id]`; scope `component` → `[data-tsd-source="<file>:<line>:<col>"]` (así el override pinta todas las instancias del componente; si no hay source, cae a `data-steer-id`).
 
 ## 7. Serialización a prompt
 

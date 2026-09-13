@@ -15,7 +15,9 @@ export type ParentToFrame =
 export type FrameToParent =
   | { type: "steer:ready" }
   | { type: "steer:hover"; selection: Selection | null }
-  | { type: "steer:select"; selection: Selection }
+  /** `id` = data-steer-id que el bridge asignó al nodo clickeado
+   *  (Fase D: el parent lo necesita para direccionar overrides). */
+  | { type: "steer:select"; id: string; selection: Selection }
   | { type: "steer:navigate"; href: string };
 
 export type PreviewPort = {
