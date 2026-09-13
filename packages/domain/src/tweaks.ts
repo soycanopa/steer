@@ -5,12 +5,12 @@
 
 import type { TweakProp } from "./intent";
 
-/** Props del TweakList P0 en orden de UI.md §5.2 (recortado a
- * IMPLEMENTATION §3-D: 6 props). */
+/** Props del TweakList P0 en orden de UI.md §5.2. */
 export const P0_TWEAK_PROPS: TweakProp[] = [
   "fontSize",
   "color",
   "textAlign",
+  "margin",
   "padding",
   "borderRadius",
   "opacity",

@@ -122,9 +122,10 @@ export function InspectorPanel({
       </Section>
 
       <Section icon={Box} title="Espaciado">
-        <PaddingBox
+        <SpacingVisual
           selection={selection}
-          tweak={tweakOf("padding")}
+          marginTweak={tweakOf("margin")}
+          paddingTweak={tweakOf("padding")}
           onSet={onSetTweak}
           onReset={onResetTweak}
         />
@@ -182,21 +183,70 @@ export function InspectorPanel({
   );
 }
 
-// El box de espaciado icónico de los builders: el elemento al centro y
-// los cuatro lados alrededor. P0: los cuatro valores van ligados
-// (padding all, IMPLEMENTATION §3-D).
-function PaddingBox({
+// El visual de espaciado icónico de los builders: margin (ámbar)
+// rodeando padding (celeste), con el elemento al centro. P0: los cuatro
+// lados de cada caja van ligados (padding all / margin all).
+function SpacingVisual({
   selection,
-  tweak,
+  marginTweak,
+  paddingTweak,
   onSet,
   onReset,
 }: {
   selection: Selection;
-  tweak: TweakView | undefined;
+  marginTweak: TweakView | undefined;
+  paddingTweak: TweakView | undefined;
   onSet(prop: TweakProp, to: string): void;
   onReset(prop: TweakProp): void;
 }) {
-  const computed = selection.computed["padding"];
+  return (
+    <div className="mb-3">
+      <Ring
+        prop="margin"
+        label="Margin"
+        selection={selection}
+        tweak={marginTweak}
+        ringClass="border-amber-400/50 bg-amber-400/10"
+        inputClass="border-amber-400/40"
+        onSet={onSet}
+        onReset={onReset}
+      />
+      <div className="-mx-0.5 -mt-1">
+        <Ring
+          prop="padding"
+          label="Padding"
+          selection={selection}
+          tweak={paddingTweak}
+          ringClass="border-sky-400/50 bg-sky-400/10"
+          inputClass="border-sky-400/40"
+          onSet={onSet}
+          onReset={onReset}
+        />
+      </div>
+    </div>
+  );
+}
+
+function Ring({
+  prop,
+  label,
+  selection,
+  tweak,
+  ringClass,
+  inputClass,
+  onSet,
+  onReset,
+}: {
+  prop: TweakProp;
+  label: string;
+  selection: Selection;
+  tweak: TweakView | undefined;
+  ringClass: string;
+  inputClass: string;
+  onSet(prop: TweakProp, to: string): void;
+  onReset(prop: TweakProp): void;
+}) {
+  const computed = selection.computed[prop];
   const dirty = tweak !== undefined;
   const value = dirty ? numFromPx(tweak.to) ?? 0 : numFromPx(computed) ?? 0;
 
@@ -205,24 +255,24 @@ function PaddingBox({
       type="text"
       inputMode="numeric"
       value={String(value)}
-      aria-label={`Padding ${side}`}
+      aria-label={`${label} ${side}`}
       onChange={(e) => {
         const n = Number(/(\d+(?:\.\d+)?)/.exec(e.target.value)?.[1] ?? NaN);
-        if (Number.isFinite(n)) onSet("padding", pxValue(n));
+        if (Number.isFinite(n)) onSet(prop, pxValue(n));
       }}
-      className="h-6 w-10 rounded-[4px] border border-[var(--line)] bg-[var(--bg-2)] text-center font-mono text-[length:var(--fs-0)] text-[var(--text-1)] outline-none focus:border-[var(--accent)] focus:text-[var(--text-0)]"
+      className={`h-6 w-10 rounded-[4px] border bg-[var(--bg-2)] text-center font-mono text-[length:var(--fs-0)] text-[var(--text-1)] outline-none focus:border-[var(--accent)] focus:text-[var(--text-0)] ${inputClass}`}
     />
   );
 
   return (
-    <div className="mb-3">
+    <div className={`rounded-xl border-2 p-2 ${ringClass}`}>
       <div className="mb-1.5 flex items-center gap-2">
         <span
           className={`size-1.5 shrink-0 rounded-full ${dirty ? "bg-[var(--accent)]" : "bg-transparent"}`}
           aria-hidden
         />
-        <span className="flex-1 text-[length:var(--fs-1)] text-[var(--text-1)]">
-          Padding
+        <span className="flex-1 text-[length:var(--fs-0)] font-semibold tracking-wide text-[var(--text-1)] uppercase">
+          {label}
         </span>
         {dirty ? (
           <>
@@ -231,8 +281,8 @@ function PaddingBox({
             </span>
             <button
               type="button"
-              onClick={() => onReset("padding")}
-              title="Reset padding"
+              onClick={() => onReset(prop)}
+              title={`Reset ${label.toLowerCase()}`}
               className="text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
             >
               <RotateCcw size={11} strokeWidth={1.75} />
@@ -240,17 +290,17 @@ function PaddingBox({
           </>
         ) : null}
       </div>
-      <div className="rounded-xl border border-[var(--line)] bg-[var(--bg-1)] p-2">
-        <div className="flex justify-center">{mini("top")}</div>
-        <div className="my-1.5 flex items-center justify-between">
-          {mini("left")}
-          <span className="rounded-md border border-dashed border-[var(--line)] px-3 py-1 text-[10px] text-[var(--text-2)]">
+      <div className="flex justify-center">{mini("top")}</div>
+      <div className="my-1.5 flex items-center justify-between gap-1">
+        {mini("left")}
+        {prop === "padding" ? (
+          <span className="rounded-md border border-dashed border-[var(--line)] bg-[var(--bg-1)] px-3 py-1 text-[10px] text-[var(--text-2)]">
             {selection.tag}
           </span>
-          {mini("right")}
-        </div>
-        <div className="flex justify-center">{mini("bottom")}</div>
+        ) : null}
+        {mini("right")}
       </div>
+      <div className="flex justify-center">{mini("bottom")}</div>
     </div>
   );
 }

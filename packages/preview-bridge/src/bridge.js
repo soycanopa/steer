@@ -17,6 +17,7 @@
     "backgroundColor",
     "textAlign",
     "padding",
+    "margin",
     "gap",
     "borderRadius",
     "opacity",

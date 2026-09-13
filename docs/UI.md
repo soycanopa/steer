@@ -98,6 +98,7 @@ Una fila por propiedad. Label 11px text-2 + control + valor.
 | Background | swatch + hex + “none” | |
 | Align | 4 icon buttons L/C/R/J | |
 | Padding | slider 0–64 o 4 inputs si se expande | P0: un slider = padding all |
+| Margin | box visual ligado (4 lados) | Fase D+; anidado al padding en el box de espaciado |
 | Gap | slider 0–64 | disabled si no es flex/grid |
 | Radius | slider 0–32 | |
 | Opacity | slider 0–100% | |
