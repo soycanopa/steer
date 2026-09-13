@@ -27,7 +27,6 @@ pub struct DevStartInfo {
 pub struct ManagedDev {
     child: Child,
     url: String,
-    pub logs: SharedLines,
 }
 
 /// Ruta del proyecto → proceso gestionado. Estado Tauri compartido.
@@ -115,7 +114,7 @@ pub fn project_dev_start(
             state
                 .lock()
                 .expect("devserver map poisoned")
-                .insert(path, ManagedDev { child, url: url.clone(), logs });
+                .insert(path, ManagedDev { child, url: url.clone() });
             Ok(DevStartInfo { url, spawned: true })
         }
         None => {
