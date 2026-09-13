@@ -25,20 +25,23 @@ Frase de cabecera (producto): “Tú diriges. El agente escribe.”
 Tres zonas fijas. No layouts alternativos en P0.
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ Titlebar: proyecto · ruta · estado dev · estado agente      │
-├──────────────────────────┬──────────────────────────────────┤
-│                          │ Inspector                        │
-│                          │  selección, alcance, tweaks      │
-│   Preview                ├──────────────────────────────────┤
-│   (iframe + overlay)     │ Chat                             │
-│                          │  intents + stream + composer     │
-│                          │                                  │
-└──────────────────────────┴──────────────────────────────────┘
-│ Status: inspect on/off · N intents en cola · modelo         │
+┌──────────────────────────────────────────────────────────────────┐
+│ Titlebar: proyecto · ruta · estado dev · estado agente           │
+├───────────────────────────────┬──────────┬───────────────────────┤
+│                               │Inspector │ Chat                  │
+│   Preview                     │ selección│  intents + stream     │
+│   (iframe + overlay)          │ alcance  │  + composer           │
+│                               │ tweaks   │                       │
+│                               │ pins     │                       │
+├───────────────────────────────┴──────────┴───────────────────────┤
+│ Status: inspect on/off · N intents en cola · modelo              │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-Proporción default: preview 62% / panel 38%. Panel partido ~ 45% inspector / 55% chat. El usuario puede arrastrar el split vertical; no el horizontal en P0 (más simple).
+El chat es columna propia, no parte del inspector. El Inspector solo
+aparece con un nodo seleccionado; sin selección el preview se estira y
+el chat permanece. Anchos fijos para inspector (~300px) y chat
+(~320px); el preview toma el resto. El drag de splits no es P0.
 
 ## 4. Modos
 

@@ -105,10 +105,8 @@ export default function App() {
             .filter((p) => p !== null)
         : [];
 
-    // UX §3: panel derecho = Inspector (con selección) + Chat. Sin
-    // selección y sin contenido de chat, el preview ocupa todo.
-    const hasPanel = selection !== null || queue.length > 0 || transcript.length > 0;
-
+    // UX §3 (ajustada): preview | inspector (solo con selección) |
+    // chat — el chat es columna propia, no parte del inspector.
     return (
       <AppShell
         projectName={projectMeta.name}
@@ -118,7 +116,6 @@ export default function App() {
         queueCount={queue.length}
       >
         <SplitPane
-          leftPct={hasPanel ? 62 : 100}
           left={
             <PreviewFrame
               url={previewUrl}
@@ -132,37 +129,31 @@ export default function App() {
               onFrameEl={setFrameEl}
             />
           }
-          right={
-            hasPanel ? (
-              <div className="flex h-full min-h-0 flex-col">
-                {selection !== null ? (
-                  <div className="h-[45%] min-h-0 overflow-y-auto border-b border-[var(--line)]">
-                    <InspectorPanel
-                      selection={selection}
-                      scope={scope}
-                      tweaks={currentTweaks}
-                      pins={currentPins}
-                      onSetScope={(s) => store.getState().setScope(s)}
-                      onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
-                      onResetTweak={(prop) => store.getState().resetTweak(prop)}
-                      onResetAll={() => store.getState().resetAllTweaks()}
-                      onAddPin={(body) => store.getState().queueComment(body)}
-                      onRemovePin={(id) => store.getState().removeQueued(id)}
-                    />
-                  </div>
-                ) : null}
-                <div className="min-h-0 flex-1">
-                  <ChatPanel
-                    transcript={transcript}
-                    queueCount={queue.length}
-                    draftNote={draftNote}
-                    onDraftNote={(text) => store.getState().setDraftNote(text)}
-                    onApply={() => store.getState().applyQueue()}
-                    onClearQueue={() => store.getState().clearQueue()}
-                  />
-                </div>
-              </div>
+          middle={
+            selection !== null ? (
+              <InspectorPanel
+                selection={selection}
+                scope={scope}
+                tweaks={currentTweaks}
+                pins={currentPins}
+                onSetScope={(s) => store.getState().setScope(s)}
+                onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
+                onResetTweak={(prop) => store.getState().resetTweak(prop)}
+                onResetAll={() => store.getState().resetAllTweaks()}
+                onAddPin={(body) => store.getState().queueComment(body)}
+                onRemovePin={(id) => store.getState().removeQueued(id)}
+              />
             ) : null
+          }
+          right={
+            <ChatPanel
+              transcript={transcript}
+              queueCount={queue.length}
+              draftNote={draftNote}
+              onDraftNote={(text) => store.getState().setDraftNote(text)}
+              onApply={() => store.getState().applyQueue()}
+              onClearQueue={() => store.getState().clearQueue()}
+            />
           }
         />
       </AppShell>
