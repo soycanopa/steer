@@ -116,6 +116,15 @@
     return tag + cls + "  " + Math.round(r.width) + "×" + Math.round(r.height);
   }
 
+  function place(box, el) {
+    var r = el.getBoundingClientRect();
+    box.style.left = r.left + window.scrollX + "px";
+    box.style.top = r.top + window.scrollY + "px";
+    box.style.width = r.width + "px";
+    box.style.height = r.height + "px";
+    box.style.display = "block";
+  }
+
   function placeLabel(label, el) {
     var r = el.getBoundingClientRect();
     var x = r.left + window.scrollX;
