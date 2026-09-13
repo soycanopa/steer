@@ -23,7 +23,7 @@
   ];
 
   var SOURCE_ATTR = "data-tsd-source";
-  var OVERLAY_COLOR = "#5b8cff";
+  var ACCENT = "#2b6bff"; // azul tipo Webflow, distinto del brand del proyecto (UX §9)
 
   var inspect = false;
   var selectedEl = null;
@@ -76,16 +76,17 @@
       document.body.appendChild(d);
       return d;
     }
-    // Espaciado estilo DevTools/Webflow: padding celeste, margin ámbar.
+    // Estilo Webflow: relleno azul en hover, padding celeste, margin ámbar.
     paddingBox = box(2147483643);
-    paddingBox.style.background = "rgba(147,197,253,0.35)";
+    paddingBox.style.background = "rgba(120,180,255,0.35)";
     marginBox = box(2147483642);
-    marginBox.style.background = "rgba(255,167,38,0.30)";
+    marginBox.style.background = "rgba(255,170,60,0.32)";
     hoverBox = box(2147483646);
-    hoverBox.style.border = "2px solid " + OVERLAY_COLOR;
+    hoverBox.style.border = "2px solid " + ACCENT;
+    hoverBox.style.background = "rgba(43,107,255,0.08)";
     hoverBox.style.display = "none";
     selectBox = box(2147483644);
-    selectBox.style.border = "2px solid " + OVERLAY_COLOR;
+    selectBox.style.border = "2px solid " + ACCENT;
     selectBox.style.display = "none";
     hoverLabel = makeLabel(2147483647);
     selectLabel = makeLabel(2147483645);
@@ -95,9 +96,10 @@
     var d = document.createElement("div");
     d.style.cssText =
       "position:absolute;pointer-events:none;z-index:" + z + ";display:none;" +
-      "font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;" +
-      "background:#0e0f11cc;color:#f2f3f5;padding:1px 6px;border-radius:4px;" +
-      "white-space:nowrap;";
+      "font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;" +
+      "background:" + ACCENT + ";color:#fff;padding:2px 7px;" +
+      "border-radius:4px 4px 4px 0;white-space:nowrap;" +
+      "transform:translateY(-100%);";
     document.body.appendChild(d);
     return d;
   }
