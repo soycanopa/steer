@@ -175,7 +175,7 @@
     }
     ensureOverlayNodes();
     place(selectBox, el);
-    send({ type: "steer:select", selection: buildSelection(el) });
+    send({ type: "steer:select", id: selectedId, selection: buildSelection(el) });
   }
 
   function setInspect(on) {
@@ -223,7 +223,23 @@
     var css = "";
     for (var id in byId) {
       if (!Object.prototype.hasOwnProperty.call(byId, id)) continue;
-      css += '[data-steer-id="' + id + '"]{';
+      // Scope component: target por data-tsd-source (todas las
+      // instancias del componente); sin source, cae a data-steer-id.
+      var first = byId[id][0];
+      var selector =
+        first &&
+        first.scope === "component" &&
+        first.source &&
+        first.source.file
+          ? '[data-tsd-source="' +
+            first.source.file +
+            ":" +
+            first.source.line +
+            ":" +
+            first.source.col +
+            '"]'
+          : '[data-steer-id="' + id + '"]';
+      css += selector + "{";
       var rules = byId[id];
       for (var j = 0; j < rules.length; j++) {
         css += cssProp(rules[j].prop) + ":" + rules[j].value + " !important;";
