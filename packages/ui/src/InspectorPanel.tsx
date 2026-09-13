@@ -9,9 +9,15 @@ import {
   AlignJustify,
   AlignLeft,
   AlignRight,
+  Baseline,
+  Box,
+  Palette,
   Pin,
   RotateCcw,
+  ScanSearch,
+  Sparkles,
   X,
+  type LucideIcon,
 } from "lucide-react";
 import type { Scope, Selection, TweakProp } from "@steer/domain";
 import {
@@ -20,7 +26,6 @@ import {
   numFromPx,
   opacityFromComputed,
   pxValue,
-  P0_TWEAK_PROPS,
 } from "@steer/domain";
 
 export type TweakView = {
@@ -80,7 +85,7 @@ export function InspectorPanel({
 
   return (
     <div className="flex h-full flex-col gap-4 px-4 py-4">
-      <Section title="Selección">
+      <Section icon={ScanSearch} title="Selección">
         <div className="flex flex-col gap-2">
           <Breadcrumb selection={selection} />
           <PathRow selection={selection} />
@@ -105,34 +110,147 @@ export function InspectorPanel({
         </div>
       </Section>
 
-      <Section title="Tweaks">
-        <div className="flex flex-col">
-          {P0_TWEAK_PROPS.map((prop) => (
-            <TweakRow
-              key={prop}
-              prop={prop}
-              selection={selection}
-              tweak={tweakOf(prop)}
-              onSet={onSetTweak}
-              onReset={onResetTweak}
-            />
-          ))}
-        </div>
-        {tweaks.length > 0 ? (
-          <button
-            type="button"
-            onClick={onResetAll}
-            className="mt-3 flex items-center gap-1.5 text-[length:var(--fs-1)] text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
-          >
-            <RotateCcw size={11} strokeWidth={1.75} />
-            Reset preview
-          </button>
-        ) : null}
+      {/* Grupos como Webflow: tipografía / espaciado / texto / efectos */}
+      <Section icon={Baseline} title="Tipografía">
+        <TweakRow
+          prop="fontSize"
+          selection={selection}
+          tweak={tweakOf("fontSize")}
+          onSet={onSetTweak}
+          onReset={onResetTweak}
+        />
       </Section>
 
-      <Section title="Pins">
+      <Section icon={Box} title="Espaciado">
+        <PaddingBox
+          selection={selection}
+          tweak={tweakOf("padding")}
+          onSet={onSetTweak}
+          onReset={onResetTweak}
+        />
+        <TweakRow
+          prop="borderRadius"
+          selection={selection}
+          tweak={tweakOf("borderRadius")}
+          onSet={onSetTweak}
+          onReset={onResetTweak}
+        />
+      </Section>
+
+      <Section icon={Palette} title="Texto y color">
+        <TweakRow
+          prop="textAlign"
+          selection={selection}
+          tweak={tweakOf("textAlign")}
+          onSet={onSetTweak}
+          onReset={onResetTweak}
+        />
+        <TweakRow
+          prop="color"
+          selection={selection}
+          tweak={tweakOf("color")}
+          onSet={onSetTweak}
+          onReset={onResetTweak}
+        />
+      </Section>
+
+      <Section icon={Sparkles} title="Efectos">
+        <TweakRow
+          prop="opacity"
+          selection={selection}
+          tweak={tweakOf("opacity")}
+          onSet={onSetTweak}
+          onReset={onResetTweak}
+        />
+      </Section>
+
+      <Section icon={Pin} title="Pins">
         <PinSection pins={pins} onAdd={onAddPin} onRemove={onRemovePin} />
       </Section>
+
+      {tweaks.length > 0 ? (
+        <button
+          type="button"
+          onClick={onResetAll}
+          className="flex items-center gap-1.5 text-[length:var(--fs-1)] text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
+        >
+          <RotateCcw size={11} strokeWidth={1.75} />
+          Reset preview
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+// El box de espaciado icónico de los builders: el elemento al centro y
+// los cuatro lados alrededor. P0: los cuatro valores van ligados
+// (padding all, IMPLEMENTATION §3-D).
+function PaddingBox({
+  selection,
+  tweak,
+  onSet,
+  onReset,
+}: {
+  selection: Selection;
+  tweak: TweakView | undefined;
+  onSet(prop: TweakProp, to: string): void;
+  onReset(prop: TweakProp): void;
+}) {
+  const computed = selection.computed["padding"];
+  const dirty = tweak !== undefined;
+  const value = dirty ? numFromPx(tweak.to) ?? 0 : numFromPx(computed) ?? 0;
+
+  const mini = (side: string) => (
+    <input
+      type="text"
+      inputMode="numeric"
+      value={String(value)}
+      aria-label={`Padding ${side}`}
+      onChange={(e) => {
+        const n = Number(/(\d+(?:\.\d+)?)/.exec(e.target.value)?.[1] ?? NaN);
+        if (Number.isFinite(n)) onSet("padding", pxValue(n));
+      }}
+      className="h-6 w-10 rounded-[4px] border border-[var(--line)] bg-[var(--bg-2)] text-center font-mono text-[length:var(--fs-0)] text-[var(--text-1)] outline-none focus:border-[var(--accent)] focus:text-[var(--text-0)]"
+    />
+  );
+
+  return (
+    <div className="mb-3">
+      <div className="mb-1.5 flex items-center gap-2">
+        <span
+          className={`size-1.5 shrink-0 rounded-full ${dirty ? "bg-[var(--accent)]" : "bg-transparent"}`}
+          aria-hidden
+        />
+        <span className="flex-1 text-[length:var(--fs-1)] text-[var(--text-1)]">
+          Padding
+        </span>
+        {dirty ? (
+          <>
+            <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
+              {tweak.from} → <span className="text-[var(--accent)]">{tweak.to}</span>
+            </span>
+            <button
+              type="button"
+              onClick={() => onReset("padding")}
+              title="Reset padding"
+              className="text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
+            >
+              <RotateCcw size={11} strokeWidth={1.75} />
+            </button>
+          </>
+        ) : null}
+      </div>
+      <div className="rounded-xl border border-[var(--line)] bg-[var(--bg-1)] p-2">
+        <div className="flex justify-center">{mini("top")}</div>
+        <div className="my-1.5 flex items-center justify-between">
+          {mini("left")}
+          <span className="rounded-md border border-dashed border-[var(--line)] px-3 py-1 text-[10px] text-[var(--text-2)]">
+            {selection.tag}
+          </span>
+          {mini("right")}
+        </div>
+        <div className="flex justify-center">{mini("bottom")}</div>
+      </div>
     </div>
   );
 }
@@ -145,10 +263,19 @@ function Key({ children }: { children: ReactNode }) {
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+function Section({
+  icon: Icon,
+  title,
+  children,
+}: {
+  icon: LucideIcon;
+  title: string;
+  children: ReactNode;
+}) {
   return (
     <section>
-      <h2 className="mb-2.5 font-mono text-[length:var(--fs-0)] tracking-wider text-[var(--text-2)] uppercase">
+      <h2 className="mb-2.5 flex items-center gap-1.5 font-mono text-[length:var(--fs-0)] tracking-wider text-[var(--text-2)] uppercase">
+        <Icon size={11} strokeWidth={1.75} />
         {title}
       </h2>
       {children}
