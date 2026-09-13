@@ -38,6 +38,10 @@ export function createIframePreviewPort(
     setOverrides: (overrides) => post({ type: "steer:set-overrides", overrides }),
     clearOverrides: () => post({ type: "steer:clear-overrides" }),
     highlight: (source) => post({ type: "steer:highlight", source }),
+    addPin: (intentId, steerId, number) =>
+      post({ type: "steer:add-pin", intentId, steerId, number }),
+    removePin: (intentId) => post({ type: "steer:remove-pin", intentId }),
+    clearPins: () => post({ type: "steer:clear-pins" }),
     subscribe: (handler) => {
       handlers.add(handler);
       return () => handlers.delete(handler);

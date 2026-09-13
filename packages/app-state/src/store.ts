@@ -8,11 +8,18 @@ import type {
   Scope,
   TweakProp,
 } from "@steer/domain";
+import {
+  buildApplyPayload,
+  enqueueComment,
+  enqueueTweak,
+  removeIntent,
+} from "@steer/domain";
 import type { PreviewPort, ProjectMeta, ProjectPort } from "@steer/ports";
 import type { ProjectSlice } from "./project";
 import type { TweakDraft } from "./selection";
 import { findTweak, initialSelectionSlice, type SelectionSlice } from "./selection";
 import { initialPreviewSlice, type PreviewSlice } from "./preview";
+import { initialIntentsSlice, type IntentsSlice, type TranscriptBlock } from "./intents";
 
 // Persistencia de prefs vía host (TRD §2). El adapter real vive en
 // apps/desktop/src/tauri/prefs.ts; app-state no conoce Tauri.
@@ -29,7 +36,8 @@ export type AppDeps = {
 
 export type SteerState = ProjectSlice &
   PreviewSlice &
-  SelectionSlice & {
+  SelectionSlice &
+  IntentsSlice & {
     bootstrap(): Promise<void>;
     openProject(path: string): Promise<void>;
     startPreview(): Promise<void>;
@@ -47,6 +55,14 @@ export type SteerState = ProjectSlice &
     resetAllTweaks(): void;
     /** UX §7: ⌘Z — undo del último override local. */
     undoLastTweak(): void;
+    /** UX §5.5: encola el comment y ancla el pin al nodo. */
+    queueComment(body: string): void;
+    removeQueued(intentId: string): void;
+    /** UX §5.6: lote → transcript. Fase E: sin llamada a agente. */
+    applyQueue(): void;
+    /** UX §5.6: Vaciar cola. */
+    clearQueue(): void;
+    setDraftNote(text: string): void;
   };
 
 export type SteerStore = ReturnType<typeof createAppStore>;
@@ -61,6 +77,11 @@ function buildOverrides(tweaks: TweakDraft[]): OverlayOverride[] {
   }));
 }
 
+/** Clave de nodo estable entre drafts e intents: el source anclado. */
+function locKey(s: { source: { file: string; line: number; col: number } }): string {
+  return `${s.source.file}:${s.source.line}:${s.source.col}`;
+}
+
 export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
   const store = createStore<SteerState>()((set, get) => ({
     projectStatus: "empty",
@@ -69,6 +90,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
     lastProject: null,
     ...initialPreviewSlice,
     ...initialSelectionSlice,
+    ...initialIntentsSlice,
 
     async bootstrap() {
       set({ lastProject: await prefs.getLastProject() });
@@ -86,6 +108,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
         projectError: null,
         ...initialPreviewSlice,
         ...initialSelectionSlice,
+        ...initialIntentsSlice,
       });
       try {
         const meta: ProjectMeta = await projectPort.open(path);
@@ -138,6 +161,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
       set({
         ...initialPreviewSlice,
         ...initialSelectionSlice,
+        ...initialIntentsSlice,
       });
     },
 
@@ -160,7 +184,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
     },
 
     setTweak(prop, to) {
-      const { selection, selectedId, scope, tweaks, tweakLog } = get();
+      const { selection, selectedId, scope, tweaks, tweakLog, queue } = get();
       if (selection === null || selectedId === null) return;
       const existing = findTweak(tweaks, selectedId, scope, prop);
       const draft: TweakDraft = existing
@@ -174,38 +198,133 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
         ? tweakLog
         : [...tweakLog, { steerId: selectedId, scope, prop }];
 
-      set({ tweaks: nextTweaks, tweakLog: nextLog });
+      set({
+        tweaks: nextTweaks,
+        tweakLog: nextLog,
+        // Cola de intents: replace-by-prop en domain (TRD §5).
+        queue: enqueueTweak(queue, {
+          selection,
+          scope,
+          prop,
+          from: draft.from,
+          to: draft.to,
+        }),
+      });
       previewPort.setOverrides(buildOverrides(nextTweaks));
     },
 
     resetTweak(prop) {
-      const { selectedId, scope, tweaks } = get();
+      const { selectedId, scope, tweaks, queue, selection } = get();
       if (selectedId === null) return;
       const nextTweaks = tweaks.filter(
         (t) => !(t.steerId === selectedId && t.scope === scope && t.prop === prop),
       );
-      set({ tweaks: nextTweaks });
+      const nextQueue =
+        selection === null
+          ? queue
+          : queue.filter(
+              (i) =>
+                !(
+                  i.kind === "tweak" &&
+                  i.prop === prop &&
+                  i.scope === scope &&
+                  locKey(i.selection) === locKey(selection)
+                ),
+            );
+      set({ tweaks: nextTweaks, queue: nextQueue });
       previewPort.setOverrides(buildOverrides(nextTweaks));
     },
 
     resetAllTweaks() {
-      set({ tweaks: [], tweakLog: [] });
+      // Los comments encolados no se tocan: reset solo afecta tweaks.
+      set((s) => ({
+        tweaks: [],
+        tweakLog: [],
+        queue: s.queue.filter((i) => i.kind !== "tweak"),
+      }));
       previewPort.clearOverrides();
     },
 
     undoLastTweak() {
-      const { tweaks, tweakLog } = get();
+      const { tweaks, tweakLog, queue } = get();
       const last = tweakLog[tweakLog.length - 1];
       if (last === undefined) return;
       const draft = findTweak(tweaks, last.steerId, last.scope, last.prop);
       const nextTweaks = draft
         ? tweaks.filter((t) => t !== draft)
         : tweaks;
+      const nextQueue = draft
+        ? queue.filter(
+            (i) =>
+              !(
+                i.kind === "tweak" &&
+                i.prop === draft.prop &&
+                i.scope === draft.scope &&
+                locKey(i.selection) === locKey(draft.selection)
+              ),
+          )
+        : queue;
       set({
         tweaks: nextTweaks,
         tweakLog: tweakLog.slice(0, -1),
+        queue: nextQueue,
       });
       previewPort.setOverrides(buildOverrides(nextTweaks));
+    },
+
+    queueComment(body) {
+      const { selection, selectedId, scope, queue, nextPin } = get();
+      if (selection === null || selectedId === null) return;
+      const trimmed = body.trim();
+      if (trimmed === "") return; // pin vacío no se encola (UX §5.5)
+      const { queue: nextQueue, intent } = enqueueComment(queue, {
+        selection,
+        scope,
+        body: trimmed,
+        pin: nextPin,
+      });
+      set({ queue: nextQueue, nextPin: nextPin + 1 });
+      previewPort.addPin(intent.id, selectedId, nextPin);
+    },
+
+    removeQueued(intentId) {
+      const intent = get().queue.find((i) => i.id === intentId);
+      set((s) => ({ queue: removeIntent(s.queue, intentId) }));
+      if (intent !== undefined && intent.kind === "comment") {
+        previewPort.removePin(intentId);
+      }
+    },
+
+    applyQueue() {
+      const { queue, draftNote, projectMeta, selection } = get();
+      if (queue.length === 0) return; // UX §5.6: sin cola no hay apply
+      const payload = buildApplyPayload(queue, projectMeta?.root ?? "", {
+        route: selection?.route ?? null,
+        userNote: draftNote.trim() === "" ? undefined : draftNote.trim(),
+      });
+      const blocks: TranscriptBlock[] = [];
+      if (payload.userNote !== undefined) {
+        blocks.push({ kind: "user", id: crypto.randomUUID(), text: payload.userNote });
+      }
+      blocks.push({ kind: "batch", id: crypto.randomUUID(), payload });
+      set((s) => ({
+        transcript: [...s.transcript, ...blocks],
+        queue: [],
+        draftNote: "",
+      }));
+      // Fase E: sin agente. Los overrides quedan pintados; la F los
+      // deja hasta `done` del AgentPort y entonces limpia (UX §5.6).
+    },
+
+    clearQueue() {
+      get()
+        .queue.filter((i) => i.kind === "comment")
+        .forEach((i) => previewPort.removePin(i.id));
+      set({ queue: [] });
+    },
+
+    setDraftNote(text) {
+      set({ draftNote: text });
     },
   }));
 
