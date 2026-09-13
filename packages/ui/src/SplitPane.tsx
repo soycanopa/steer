@@ -9,7 +9,7 @@ export function SplitPane({
   left,
   middle,
   right,
-  middleWidth = 300,
+  middleWidth = 320,
   rightWidth = 320,
 }: {
   left: ReactNode;
