@@ -19,7 +19,12 @@ import type { ProjectSlice } from "./project";
 import type { TweakDraft } from "./selection";
 import { findTweak, initialSelectionSlice, type SelectionSlice } from "./selection";
 import { initialPreviewSlice, type PreviewSlice } from "./preview";
-import { initialIntentsSlice, type IntentsSlice, type TranscriptBlock } from "./intents";
+import {
+  initialIntents,
+  newChatSession,
+  type IntentsSlice,
+  type TranscriptBlock,
+} from "./intents";
 
 // Persistencia de prefs vía host (TRD §2). El adapter real vive en
 // apps/desktop/src/tauri/prefs.ts; app-state no conoce Tauri.
@@ -58,11 +63,16 @@ export type SteerState = ProjectSlice &
     /** UX §5.5: encola el comment y ancla el pin al nodo. */
     queueComment(body: string): void;
     removeQueued(intentId: string): void;
-    /** UX §5.6: lote → transcript. Fase E: sin llamada a agente. */
+    /** UX §5.6: lote → transcript de la sesión activa. Fase E: sin agente. */
     applyQueue(): void;
     /** UX §5.6: Vaciar cola. */
     clearQueue(): void;
     setDraftNote(text: string): void;
+    /** Columna de chat: mostrar/ocultar (toggle del titlebar). */
+    toggleChat(on?: boolean): void;
+    /** Historial: crear sesión nueva y activarla. */
+    newSession(): void;
+    selectSession(id: string): void;
   };
 
 export type SteerStore = ReturnType<typeof createAppStore>;
@@ -90,7 +100,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
     lastProject: null,
     ...initialPreviewSlice,
     ...initialSelectionSlice,
-    ...initialIntentsSlice,
+    ...initialIntents(),
 
     async bootstrap() {
       set({ lastProject: await prefs.getLastProject() });
@@ -108,7 +118,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
         projectError: null,
         ...initialPreviewSlice,
         ...initialSelectionSlice,
-        ...initialIntentsSlice,
+        ...initialIntents(),
       });
       try {
         const meta: ProjectMeta = await projectPort.open(path);
@@ -161,7 +171,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
       set({
         ...initialPreviewSlice,
         ...initialSelectionSlice,
-        ...initialIntentsSlice,
+        ...initialIntents(),
       });
     },
 
@@ -296,7 +306,7 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
     },
 
     applyQueue() {
-      const { queue, draftNote, projectMeta, selection } = get();
+      const { queue, draftNote, projectMeta, selection, sessions, activeSessionId } = get();
       if (queue.length === 0) return; // UX §5.6: sin cola no hay apply
       const payload = buildApplyPayload(queue, projectMeta?.root ?? "", {
         route: selection?.route ?? null,
@@ -307,11 +317,19 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
         blocks.push({ kind: "user", id: crypto.randomUUID(), text: payload.userNote });
       }
       blocks.push({ kind: "batch", id: crypto.randomUUID(), payload });
-      set((s) => ({
-        transcript: [...s.transcript, ...blocks],
+      set({
+        sessions: sessions.map((s) =>
+          s.id !== activeSessionId
+            ? s
+            : {
+                ...s,
+                blocks: [...s.blocks, ...blocks],
+                title: s.title ?? payload.userNote ?? null,
+              },
+        ),
         queue: [],
         draftNote: "",
-      }));
+      });
       // Fase E: sin agente. Los overrides quedan pintados; la F los
       // deja hasta `done` del AgentPort y entonces limpia (UX §5.6).
     },
@@ -325,6 +343,23 @@ export function createAppStore({ projectPort, previewPort, prefs }: AppDeps) {
 
     setDraftNote(text) {
       set({ draftNote: text });
+    },
+
+    toggleChat(on) {
+      set({ chatOpen: on ?? !get().chatOpen });
+    },
+
+    newSession() {
+      const { sessions, activeSessionId } = get();
+      const current = sessions.find((s) => s.id === activeSessionId);
+      // Si la activa está vacía no tiene sentido duplicar.
+      if (current !== undefined && current.blocks.length === 0) return;
+      const session = newChatSession();
+      set({ sessions: [...sessions, session], activeSessionId: session.id });
+    },
+
+    selectSession(id) {
+      set((s) => ({ activeSessionId: id, chatOpen: true }));
     },
   }));
 

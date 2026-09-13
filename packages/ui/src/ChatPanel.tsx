@@ -2,31 +2,55 @@
 // composer. Sin provider: el chat no habla con agentes (Fase F conecta
 // el stream); ⌘Enter aplica la cola.
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { ChevronDown, Pin, SendHorizontal } from "lucide-react";
+import {
+  ChevronDown,
+  History,
+  Pin,
+  Plus,
+  SendHorizontal,
+  X,
+} from "lucide-react";
 import type { ApplyPayload, Intent } from "@steer/domain";
 
 export type TranscriptBlockView =
   | { kind: "user"; id: string; text: string }
   | { kind: "batch"; id: string; payload: ApplyPayload };
 
+export type SessionView = {
+  id: string;
+  title: string | null;
+  createdAt: number;
+  blockCount: number;
+  active: boolean;
+};
+
 export type ChatPanelProps = {
   transcript: TranscriptBlockView[];
+  sessionTitle: string | null;
+  sessions: SessionView[];
   queueCount: number;
   draftNote: string;
   onDraftNote(text: string): void;
   onApply(): void;
   onClearQueue(): void;
+  onNewSession(): void;
+  onSelectSession(id: string): void;
 };
 
 export function ChatPanel({
   transcript,
+  sessionTitle,
+  sessions,
   queueCount,
   draftNote,
   onDraftNote,
   onApply,
   onClearQueue,
+  onNewSession,
+  onSelectSession,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   // Transcript: scroll inverso — abajo = último (UI.md §6).
   useEffect(() => {
@@ -36,6 +60,17 @@ export function ChatPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-1)]">
+      <SessionsBar
+        title={sessionTitle}
+        sessionCount={sessions.length}
+        historyOpen={historyOpen}
+        onToggleHistory={() => setHistoryOpen((v) => !v)}
+        onNewSession={onNewSession}
+      />
+      {historyOpen ? (
+        <SessionList sessions={sessions} onSelect={onSelectSession} />
+      ) : null}
+
       <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
         {transcript.length === 0 ? (
           <p className="mt-6 text-center text-[length:var(--fs-1)] text-[var(--text-2)]">
@@ -68,6 +103,81 @@ export function ChatPanel({
         />
       </div>
     </div>
+  );
+}
+
+// Barra de la sesión activa + acceso al historial + sesión nueva.
+function SessionsBar({
+  title,
+  sessionCount,
+  historyOpen,
+  onToggleHistory,
+  onNewSession,
+}: {
+  title: string | null;
+  sessionCount: number;
+  historyOpen: boolean;
+  onToggleHistory(): void;
+  onNewSession(): void;
+}) {
+  return (
+    <div className="flex h-8 shrink-0 items-center gap-1 border-b border-[var(--line)] px-2">
+      <span className="min-w-0 flex-1 truncate text-[length:var(--fs-1)] text-[var(--text-1)]">
+        {title ?? "Nueva sesión"}
+      </span>
+      <button
+        type="button"
+        onClick={onToggleHistory}
+        title={`Sesiones (${sessionCount})`}
+        className={`flex size-5 items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 ${
+          historyOpen
+            ? "bg-[var(--accent)] text-white"
+            : "text-[var(--text-1)] hover:bg-[var(--bg-3)]"
+        }`}
+      >
+        <History size={13} strokeWidth={1.75} />
+      </button>
+      <button
+        type="button"
+        onClick={onNewSession}
+        title="Nueva sesión"
+        className="flex size-5 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
+      >
+        <Plus size={13} strokeWidth={1.75} />
+      </button>
+    </div>
+  );
+}
+
+function SessionList({
+  sessions,
+  onSelect,
+}: {
+  sessions: SessionView[];
+  onSelect(id: string): void;
+}) {
+  const sorted = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
+  return (
+    <ul className="max-h-44 shrink-0 overflow-y-auto border-b border-[var(--line)] bg-[var(--bg-0)] py-1">
+      {sorted.map((s) => (
+        <li key={s.id}>
+          <button
+            type="button"
+            onClick={() => onSelect(s.id)}
+            className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-120 ${
+              s.active ? "bg-[var(--accent-dim)]" : "hover:bg-[var(--bg-2)]"
+            }`}
+          >
+            <span className="min-w-0 flex-1 truncate text-[length:var(--fs-1)] text-[var(--text-0)]">
+              {s.title ?? "Nueva sesión"}
+            </span>
+            <span className="shrink-0 font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
+              {new Date(s.createdAt).toLocaleDateString()}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 

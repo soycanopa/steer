@@ -3,6 +3,7 @@
 // (ARCHITECTURE §3).
 
 import type { ReactNode } from "react";
+import { MessageSquare } from "lucide-react";
 import { Statusbar } from "./Statusbar";
 
 export type AppShellProps = {
@@ -12,6 +13,8 @@ export type AppShellProps = {
   devStatus: "live" | "down" | "idle";
   mode: "inspect" | "interact";
   queueCount: number;
+  chatOpen: boolean;
+  onToggleChat(): void;
   children: ReactNode;
 };
 
@@ -21,6 +24,8 @@ export function AppShell({
   devStatus,
   mode,
   queueCount,
+  chatOpen,
+  onToggleChat,
   children,
 }: AppShellProps) {
   return (
@@ -39,6 +44,18 @@ export function AppShell({
           {projectPath}
         </span>
         <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onToggleChat}
+            title={chatOpen ? "Ocultar chat" : "Mostrar chat"}
+            className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 ${
+              chatOpen
+                ? "bg-[var(--accent)] text-white"
+                : "text-[var(--text-1)] hover:bg-[var(--bg-3)]"
+            }`}
+          >
+            <MessageSquare size={14} strokeWidth={1.75} />
+          </button>
           <StatusPill label="dev" value={devStatus} tone={devStatus} />
           {/* Estado real de OpenCode llega en Fase F. */}
           <StatusPill label="opencode" value="off" tone="idle" />

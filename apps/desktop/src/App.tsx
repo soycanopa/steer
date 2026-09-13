@@ -26,7 +26,9 @@ export default function App() {
   const scope = useStore(store, (s) => s.scope);
   const tweaks = useStore(store, (s) => s.tweaks);
   const queue = useStore(store, (s) => s.queue);
-  const transcript = useStore(store, (s) => s.transcript);
+  const sessions = useStore(store, (s) => s.sessions);
+  const activeSessionId = useStore(store, (s) => s.activeSessionId);
+  const chatOpen = useStore(store, (s) => s.chatOpen);
   const draftNote = useStore(store, (s) => s.draftNote);
 
   useEffect(() => {
@@ -107,6 +109,19 @@ export default function App() {
 
     // UX §3 (ajustada): preview | inspector (solo con selección) |
     // chat — el chat es columna propia, no parte del inspector.
+    const activeSession =
+      sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
+
+    const sessionViews = [...sessions]
+      .sort((a, b) => b.createdAt - a.createdAt)
+      .map((s) => ({
+        id: s.id,
+        title: s.title,
+        createdAt: s.createdAt,
+        blockCount: s.blocks.length,
+        active: s.id === activeSessionId,
+      }));
+
     return (
       <AppShell
         projectName={projectMeta.name}
@@ -114,6 +129,8 @@ export default function App() {
         devStatus={devStatus}
         mode={inspectOn ? "inspect" : "interact"}
         queueCount={queue.length}
+        chatOpen={chatOpen}
+        onToggleChat={() => store.getState().toggleChat()}
       >
         <SplitPane
           left={
@@ -148,14 +165,20 @@ export default function App() {
             ) : null
           }
           right={
-            <ChatPanel
-              transcript={transcript}
-              queueCount={queue.length}
-              draftNote={draftNote}
-              onDraftNote={(text) => store.getState().setDraftNote(text)}
-              onApply={() => store.getState().applyQueue()}
-              onClearQueue={() => store.getState().clearQueue()}
-            />
+            chatOpen && activeSession !== null ? (
+              <ChatPanel
+                transcript={activeSession.blocks}
+                sessionTitle={activeSession.title}
+                sessions={sessionViews}
+                queueCount={queue.length}
+                draftNote={draftNote}
+                onDraftNote={(text) => store.getState().setDraftNote(text)}
+                onApply={() => store.getState().applyQueue()}
+                onClearQueue={() => store.getState().clearQueue()}
+                onNewSession={() => store.getState().newSession()}
+                onSelectSession={(id) => store.getState().selectSession(id)}
+              />
+            ) : null
           }
         />
       </AppShell>
