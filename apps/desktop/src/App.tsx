@@ -130,7 +130,9 @@ export default function App() {
             />
           }
           middle={
-            selection !== null ? (
+            // Inspector solo con nodo seleccionado Y modo Inspect ON;
+            // en Interact el panel de propiedades no aparece.
+            selection !== null && inspectOn ? (
               <InspectorPanel
                 selection={selection}
                 scope={scope}
