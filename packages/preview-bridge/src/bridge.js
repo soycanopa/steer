@@ -262,15 +262,72 @@
     if (selectBox && selectedEl) place(selectBox, selectedEl);
   }
 
+  // ---- Pins (Fase E) — círculo 18px, número blanco, esquina sup-der
+  // (UI.md §4). Solo visual: el Intent vive en la cola del parent.
+  var pins = {}; // intentId → { steerId, badge }
+  var PIN_SIZE = 18;
+  var PIN_COLOR = "#ff8a4c";
+
+  function positionPins() {
+    for (var id in pins) {
+      if (!Object.prototype.hasOwnProperty.call(pins, id)) continue;
+      var pin = pins[id];
+      var el = document.querySelector('[data-steer-id="' + pin.steerId + '"]');
+      if (!el) {
+        pin.badge.style.display = "none";
+        continue;
+      }
+      var r = el.getBoundingClientRect();
+      pin.badge.style.display = "flex";
+      pin.badge.style.left =
+        r.left + window.scrollX + r.width - PIN_SIZE / 2 + "px";
+      pin.badge.style.top = r.top + window.scrollY - PIN_SIZE / 2 + "px";
+    }
+  }
+
+  function addPin(intentId, steerId, number) {
+    removePin(intentId);
+    var badge = document.createElement("div");
+    badge.setAttribute("data-steer-pin", intentId);
+    badge.textContent = String(number);
+    badge.style.cssText =
+      "position:absolute;z-index:2147483645;width:" + PIN_SIZE + "px;height:" +
+      PIN_SIZE + "px;align-items:center;justify-content:flex-start;" +
+      "border-radius:9999px;background:" + PIN_COLOR + ";color:#fff;" +
+      "font:10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;" +
+      "display:flex;box-shadow:0 1px 4px #0e0f1166;pointer-events:none;";
+    document.body.appendChild(badge);
+    pins[intentId] = { steerId: steerId, badge: badge };
+    positionPins();
+  }
+
+  function removePin(intentId) {
+    var pin = pins[intentId];
+    if (pin) {
+      pin.badge.remove();
+      delete pins[intentId];
+    }
+  }
+
+  function clearPins() {
+    for (var id in pins) {
+      if (Object.prototype.hasOwnProperty.call(pins, id)) removePin(id);
+    }
+  }
+
+  window.addEventListener("scroll", positionPins, true);
+  window.addEventListener("resize", positionPins);
+
   function cssProp(camel) {
     return camel.replace(/[A-Z]/g, function (c) {
       return "-" + c.toLowerCase();
     });
   }
 
-  // Navegación SPA: limpiar overrides y selección (UX §5.9).
+  // Navegación SPA: limpiar overrides, pins y selección (UX §5.9).
   function notifyNavigate(href) {
     clearOverrides();
+    clearPins();
     selectedEl = null;
     selectedId = null;
     if (selectBox) selectBox.style.display = "none";
@@ -310,6 +367,15 @@
         break;
       case "steer:highlight":
         highlight(msg.source);
+        break;
+      case "steer:add-pin":
+        addPin(msg.intentId, msg.steerId, msg.number);
+        break;
+      case "steer:remove-pin":
+        removePin(msg.intentId);
+        break;
+      case "steer:clear-pins":
+        clearPins();
         break;
       default:
         break;
