@@ -70,3 +70,10 @@
   pointer-events: none;
   background: radial-gradient(circle at 100% 0, transparent 6px, var(--bg-0) 6px);
 }
+
+/* Resize de paneles: el iframe del preview no debe tragarse los eventos de
+   puntero (mousemove/mouseup) cuando el cursor lo cruza; eso congelaba el
+   drag del sidebar. */
+body.steer-resizing iframe {
+  pointer-events: none !important;
+}

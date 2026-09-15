@@ -90,7 +90,9 @@ export type PreviewFrameProps = {
 
 const PANEL_TRANSITION_MS = 220;
 
-/** Ancho local durante el drag; commit al soltar para no re-renderizar toda la app por pixel. */
+/** Ancho local durante el drag; commit al soltar para no re-renderizar toda
+ *  la app por pixel. Durante el gesto escribimos el ancho directo al DOM
+ *  (imperativo) vía `shellRef`: cero renders de React hasta soltar. */
 function useResizableWidth(
   externalWidth: number,
   onCommit: ((w: number) => void) | undefined,
@@ -102,11 +104,13 @@ function useResizableWidth(
   const [dragging, setDragging] = useState(false);
   const widthRef = useRef(externalWidth);
   const draggingRef = useRef(false);
+  const shellRef = useRef<HTMLDivElement | null>(null);
+  const contentRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!draggingRef.current) {
-      setWidth(externalWidth);
       widthRef.current = externalWidth;
+      setWidth(externalWidth);
     }
   }, [externalWidth]);
 
@@ -118,31 +122,47 @@ function useResizableWidth(
       const startW = widthRef.current;
       draggingRef.current = true;
       setDragging(true);
+      document.body.classList.add("steer-resizing");
+      document.body.style.cursor = "col-resize";
+      document.body.style.userSelect = "none";
 
-      const onMove = (ev: MouseEvent) => {
-        const delta = (ev.clientX - startX) * direction;
+      let frame = 0;
+      let latestX = startX;
+      const apply = () => {
+        frame = 0;
+        const delta = (latestX - startX) * direction;
         const next = Math.min(max, Math.max(min, startW + delta));
         widthRef.current = next;
-        setWidth(next);
+        if (shellRef.current) shellRef.current.style.width = `${next}px`;
+        if (contentRef.current) contentRef.current.style.width = `${next}px`;
+      };
+      const onMove = (ev: MouseEvent) => {
+        latestX = ev.clientX;
+        if (frame !== 0) return;
+        frame = requestAnimationFrame(apply);
       };
       const onUp = () => {
+        if (frame !== 0) cancelAnimationFrame(frame);
+        frame = 0;
         draggingRef.current = false;
         setDragging(false);
+        // Commit: dejamos React en el ancho final (evita flash al volver la
+        // transición).
+        setWidth(widthRef.current);
         onCommit(widthRef.current);
-        window.removeEventListener("mousemove", onMove);
-        window.removeEventListener("mouseup", onUp);
+        document.body.classList.remove("steer-resizing");
         document.body.style.cursor = "";
         document.body.style.userSelect = "";
+        window.removeEventListener("mousemove", onMove);
+        window.removeEventListener("mouseup", onUp);
       };
       window.addEventListener("mousemove", onMove);
       window.addEventListener("mouseup", onUp);
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
     },
     [onCommit, min, max, direction],
   );
 
-  return { width, onDragStart, dragging };
+  return { width, onDragStart, dragging, shellRef, contentRef };
 }
 
 function usePanelPresence(open: boolean) {
@@ -176,9 +196,12 @@ function ResizeHandle({
       aria-orientation="vertical"
       title={title}
       onMouseDown={onMouseDown}
-      className="relative z-10 w-0 shrink-0 self-stretch"
+      className="group relative z-10 w-0 shrink-0 self-stretch"
     >
-      <div className="absolute inset-y-0 -left-1.5 w-3 cursor-col-resize transition-colors duration-120 hover:bg-[var(--accent)]/20" />
+      {/* Área de agarre ancha e invisible; indicador visible fino de 2px. */}
+      <div className="absolute inset-y-0 -left-[5px] w-[10px] cursor-col-resize">
+        <div className="mx-auto h-full w-[2px] rounded-full bg-transparent transition-colors duration-120 group-hover:bg-[var(--accent)]/50 group-active:bg-[var(--accent)]" />
+      </div>
     </div>
   );
 }
@@ -190,6 +213,8 @@ function AnimatedPanelColumn({
   onResizeStart,
   resizeTitle,
   resizeAfter = false,
+  shellRef,
+  contentRef,
   children,
 }: {
   open: boolean;
@@ -198,6 +223,8 @@ function AnimatedPanelColumn({
   onResizeStart?(e: React.MouseEvent): void;
   resizeTitle?: string;
   resizeAfter?: boolean;
+  shellRef?: React.RefObject<HTMLDivElement | null>;
+  contentRef?: React.RefObject<HTMLDivElement | null>;
   children: ReactNode;
 }) {
   const { mounted, visible } = usePanelPresence(open);
@@ -211,13 +238,14 @@ function AnimatedPanelColumn({
 
   const shell = (
     <div
+      ref={shellRef}
       className={`min-h-0 shrink-0 overflow-hidden rounded-[var(--radius-s)] ${transition}`}
       style={{
         width: visible ? width : 0,
         opacity: visible ? 1 : 0,
       }}
     >
-      <div className="h-full min-h-0" style={{ width }}>
+      <div ref={contentRef} className="h-full min-h-0" style={{ width }}>
         {retainedRef.current}
       </div>
     </div>
@@ -319,6 +347,8 @@ export function PreviewFrame({
           }
           resizeTitle="Arrastra para redimensionar capas"
           resizeAfter
+          shellRef={layersResize.shellRef}
+          contentRef={layersResize.contentRef}
         >
           {layersPanel}
         </AnimatedPanelColumn>
@@ -545,6 +575,8 @@ export function PreviewFrame({
             onSidePanelWidthChange ? sideResize.onDragStart : undefined
           }
           resizeTitle="Arrastra para redimensionar el panel"
+          shellRef={sideResize.shellRef}
+          contentRef={sideResize.contentRef}
         >
           {sidePanel}
         </AnimatedPanelColumn>
