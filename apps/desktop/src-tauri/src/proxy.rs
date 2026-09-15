@@ -7,6 +7,7 @@
 use std::net::TcpListener;
 use std::sync::Arc;
 use std::time::Duration;
+use std::time::Instant;
 
 use axum::body::Body;
 use axum::extract::{DefaultBodyLimit, FromRequestParts, Request, State, WebSocketUpgrade};
@@ -17,6 +18,8 @@ use axum::routing::get;
 use axum::Router;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use tokio::sync::{oneshot, Mutex};
+
+use crate::process;
 
 /// bridge.js embebido en el binario: se sirve igual en dev que empaquetado.
 const BRIDGE_JS: &str = include_str!("../../../../packages/preview-bridge/src/bridge.js");
@@ -51,7 +54,23 @@ pub async fn proxy_start(
     // Un solo preview: apagar el anterior si lo hubiera.
     stop_current(&state).await;
 
-    let upstream = upstream_url.trim_end_matches('/').to_string();
+    let upstream = process::normalize_upstream_url(&upstream_url);
+
+    // No devolver proxy_url hasta que el upstream sirva HTTP (evita
+    // "Upstream inalcanzable" en el iframe por race al reabrir).
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while Instant::now() < deadline {
+        if upstream_http_ready(&upstream).await {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(400)).await;
+    }
+    if !upstream_http_ready(&upstream).await {
+        return Err(format!(
+            "El dev server en {upstream} no responde HTTP. ¿Está corriendo `pnpm dev`?"
+        ));
+    }
+
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| format!("No pude abrir puerto local para el proxy: {e}"))?;
     listener
@@ -155,6 +174,22 @@ async fn proxy_fallback(
     }
 
     forward_http(state, Request::from_parts(parts, body)).await
+}
+
+async fn upstream_http_ready(url: &str) -> bool {
+    let client = match reqwest::Client::builder()
+        .timeout(Duration::from_secs(2))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    client
+        .get(url)
+        .send()
+        .await
+        .map(|res| res.status().is_success() || res.status().is_redirection())
+        .unwrap_or(false)
 }
 
 async fn forward_http(state: Arc<ProxyState>, request: Request) -> Result<Response, String> {

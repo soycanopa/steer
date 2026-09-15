@@ -4,6 +4,9 @@
 
 use std::io::BufRead;
 use std::io::BufReader;
+use std::net::SocketAddr;
+use std::net::TcpStream;
+use std::net::ToSocketAddrs;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
@@ -24,6 +27,45 @@ pub fn tail(lines: &SharedLines, n: usize) -> Vec<String> {
     let guard = lines.lock().expect("lines poisoned");
     let start = guard.len().saturating_sub(n);
     guard[start..].to_vec()
+}
+
+/// `localhost` → `127.0.0.1` para evitar fallos IPv6 en reqwest/hyper.
+pub fn normalize_upstream_url(url: &str) -> String {
+    url.trim_end_matches('/')
+        .replace("http://localhost:", "http://127.0.0.1:")
+        .replace("https://localhost:", "https://127.0.0.1:")
+}
+
+/// El preview proxy necesita HTTP real, no solo un puerto TCP abierto.
+pub fn upstream_http_ready(url: &str) -> bool {
+    let url = normalize_upstream_url(url);
+    let client = match reqwest::blocking::Client::builder()
+        .timeout(Duration::from_millis(2000))
+        .build()
+    {
+        Ok(c) => c,
+        Err(_) => return false,
+    };
+    client
+        .get(&url)
+        .send()
+        .map(|res| res.status().is_success() || res.status().is_redirection())
+        .unwrap_or(false)
+}
+
+/// Puerto TCP escuchando en loopback (reutilizado por devserver y opencode).
+pub fn port_open(port: u16) -> bool {
+    if port == 0 {
+        return false;
+    }
+    ("127.0.0.1", port)
+        .to_socket_addrs()
+        .ok()
+        .and_then(|mut addrs| addrs.next())
+        .map(|addr: SocketAddr| {
+            TcpStream::connect_timeout(&addr, Duration::from_millis(400)).is_ok()
+        })
+        .unwrap_or(false)
 }
 
 /// Spawn en `dir` en su propio grupo de procesos (Unix) para poder

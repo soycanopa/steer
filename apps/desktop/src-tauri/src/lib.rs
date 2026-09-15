@@ -4,6 +4,9 @@
 use tauri::Manager;
 
 mod devserver;
+mod host;
+mod opencode;
+mod prefs;
 mod process;
 mod project;
 mod proxy;
@@ -14,12 +17,19 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(devserver::new_map())
+        .manage(opencode::new_handle())
         .manage(proxy::new_handle())
         .invoke_handler(tauri::generate_handler![
             project::project_open,
             project::project_read_package,
+            project::project_list_routes,
+            project::project_reveal_in_finder,
+            host::host_open_url,
             devserver::project_dev_start,
             devserver::project_dev_stop,
+            opencode::opencode_ensure,
+            prefs::prefs_get_last_project,
+            prefs::prefs_set_last_project,
             proxy::proxy_start,
             proxy::proxy_stop
         ])
