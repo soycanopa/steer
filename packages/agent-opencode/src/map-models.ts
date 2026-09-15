@@ -17,7 +17,22 @@ type OpenCodeModel = {
   id: string;
   name?: string;
   capabilities?: OpenCodeModelCaps;
+  variants?: Record<string, { reasoningEffort?: string }>;
 };
+
+const REASONING_VARIANTS = new Set(["low", "high", "max"]);
+
+function mapReasoningVariants(
+  variants: OpenCodeModel["variants"],
+): ("low" | "high" | "max")[] {
+  const out: ("low" | "high" | "max")[] = [];
+  for (const key of Object.keys(variants ?? {})) {
+    if (REASONING_VARIANTS.has(key)) {
+      out.push(key as "low" | "high" | "max");
+    }
+  }
+  return out;
+}
 
 type OpenCodeProvider = {
   id: string;
@@ -50,6 +65,7 @@ export function mapProvidersToModels(
         capabilities: {
           reasoning: caps?.reasoning === true,
           effort: caps?.reasoning === true,
+          reasoningVariants: mapReasoningVariants(model.variants),
           images: caps?.input?.image === true,
           tools: caps?.toolcall !== false,
         },

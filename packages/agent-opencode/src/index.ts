@@ -32,6 +32,11 @@ export type OpenCodeAgentOptions = {
   baseUrl?: string;
 };
 
+/** AgentPort + setter para que el host fije la URL tras opencode_ensure. */
+export type OpencodeAgentPort = AgentPort & {
+  setBaseUrl(url: string): void;
+};
+
 type SessionInfo = { id: string };
 type HealthBody = { healthy?: boolean; version?: string };
 type ProvidersBody = ProvidersResponse & {
@@ -82,17 +87,17 @@ export function buildOpenCodeParts(
   return out;
 }
 
-function effortSuffix(req: TurnRequest): string {
+/** OpenCode: `variant` top-level en prompt_async (low | high | max…). */
+function resolveVariant(req: TurnRequest): string | undefined {
   const extras = req.extras as {
     reasoning?: { effort?: unknown };
     effort?: unknown;
   };
   const raw = extras?.reasoning?.effort ?? extras?.effort;
   if (typeof raw === "string" && raw !== "") {
-    // El server no tiene knob effort en el body; lo dejamos en el texto.
-    return `\n\n[reasoning.effort=${raw}]`;
+    return raw;
   }
-  return "";
+  return undefined;
 }
 
 /** Id del stream SSE del payload OpenCode, si viene envuelto en properties. */
@@ -113,104 +118,216 @@ function eventSessionId(ev: unknown): string | null {
   return null;
 }
 
-function mapSseToAgentEvents(
-  ev: unknown,
-  sessionId: SessionId,
-): AgentEvent | null {
-  if (typeof ev !== "object" || ev === null) return null;
-  const e = ev as { type?: unknown; properties?: unknown };
-  if (typeof e.type !== "string") return null;
+type PartTextKind = "text" | "reasoning";
 
-  // Solo eventos de nuestra sesión (o globales de error sin session).
-  const sid = eventSessionId(ev);
-  if (e.type === "session.error") {
-    if (sid !== null && sid !== sessionId) return null;
-    const props = e.properties as
-      | { error?: { message?: unknown; data?: { message?: unknown } } }
-      | undefined;
-    const message =
-      props?.error?.message ??
-      props?.error?.data?.message ??
-      "OpenCode session error";
+/** Acumula texto por part id para emitir solo deltas (OpenCode manda snapshots). */
+export function createSsePartTracker() {
+  const partKinds = new Map<string, PartTextKind>();
+  const partTexts = new Map<string, string>();
+  const messageRoles = new Map<string, "user" | "assistant">();
+
+  function registerMessageRole(messageId: string, role: "user" | "assistant"): void {
+    messageRoles.set(messageId, role);
+  }
+
+  function isAssistantMessage(messageId: string | null): boolean {
+    if (messageId == null) return true;
+    const role = messageRoles.get(messageId);
+    return role !== "user";
+  }
+
+  function registerPartKind(partId: string, kind: PartTextKind): void {
+    partKinds.set(partId, kind);
+  }
+
+  function kindForPartId(partId: string | null): PartTextKind {
+    if (partId != null && partKinds.has(partId)) {
+      return partKinds.get(partId) ?? "text";
+    }
+    return "text";
+  }
+
+  function deltaFromPart(
+    partId: string,
+    kind: PartTextKind,
+    newText: string,
+  ): AgentEvent | null {
+    registerPartKind(partId, kind);
+    if (newText === "") return null;
+    const prev = partTexts.get(partId);
+    if (prev === newText) return null;
+    let delta = newText;
+    if (prev !== undefined && newText.startsWith(prev)) {
+      delta = newText.slice(prev.length);
+    }
+    partTexts.set(partId, newText);
+    if (delta === "") return null;
     return {
-      type: "error",
-      message: typeof message === "string" ? message : "OpenCode session error",
+      type: kind === "text" ? "text-delta" : "reasoning-delta",
+      text: delta,
     };
   }
-  if (e.type === "session.idle") {
-    if (sid !== sessionId) return null;
-    return { type: "done" };
-  }
-  if (sid !== null && sid !== sessionId) return null;
 
-  if (e.type === "message.part.updated") {
-    const props = e.properties as
-      | {
-          delta?: unknown;
-          part?: {
-            type?: unknown;
-            text?: unknown;
-            tool?: unknown;
-            state?: { status?: unknown; title?: unknown; error?: unknown };
-          };
-        }
-      | undefined;
-    const part = props?.part;
-    if (part == null) return null;
+  function map(ev: unknown, sessionId: SessionId): AgentEvent | null {
+    if (typeof ev !== "object" || ev === null) return null;
+    const e = ev as { type?: unknown; properties?: unknown };
+    if (typeof e.type !== "string") return null;
 
-    if (part.type === "text") {
-      if (typeof props?.delta === "string" && props.delta !== "") {
-        return { type: "text-delta", text: props.delta };
+    const sid = eventSessionId(ev);
+    if (e.type === "session.error") {
+      if (sid !== null && sid !== sessionId) return null;
+      const props = e.properties as
+        | { error?: { message?: unknown; data?: { message?: unknown } } }
+        | undefined;
+      const message =
+        props?.error?.message ??
+        props?.error?.data?.message ??
+        "OpenCode session error";
+      return {
+        type: "error",
+        message:
+          typeof message === "string" ? message : "OpenCode session error",
+      };
+    }
+    if (e.type === "session.idle") {
+      if (sid !== sessionId) return null;
+      return { type: "done" };
+    }
+    if (sid !== null && sid !== sessionId) return null;
+
+    if (e.type === "message.updated") {
+      const props = e.properties as
+        | { info?: { id?: unknown; role?: unknown } }
+        | undefined;
+      const id = props?.info?.id;
+      const role = props?.info?.role;
+      if (
+        typeof id === "string" &&
+        (role === "user" || role === "assistant")
+      ) {
+        registerMessageRole(id, role);
       }
-      // Part completa sin delta: no la re-emitimos (evita duplicados).
       return null;
     }
 
-    if (part.type === "tool") {
-      const name = typeof part.tool === "string" ? part.tool : "tool";
-      const status = part.state?.status;
-      if (status === "running" || status === "pending") {
-        const title = part.state?.title;
-        return {
-          type: "tool",
-          name,
-          status: "start",
-          detail: typeof title === "string" ? title : undefined,
-        };
+    if (e.type === "message.part.delta") {
+      const props = e.properties as
+        | {
+            messageID?: unknown;
+            partID?: unknown;
+            field?: unknown;
+            delta?: unknown;
+          }
+        | undefined;
+      if (typeof props?.delta !== "string" || props.delta === "") return null;
+      const messageId =
+        typeof props.messageID === "string" ? props.messageID : null;
+      if (!isAssistantMessage(messageId)) return null;
+      const partId =
+        typeof props.partID === "string" && props.partID !== ""
+          ? props.partID
+          : null;
+      const kind =
+        props.field === "reasoning"
+          ? "reasoning"
+          : kindForPartId(partId);
+      if (partId != null) registerPartKind(partId, kind);
+      const prev = partId != null ? partTexts.get(partId) ?? "" : "";
+      const next = prev + props.delta;
+      if (partId != null) partTexts.set(partId, next);
+      return {
+        type: kind === "text" ? "text-delta" : "reasoning-delta",
+        text: props.delta,
+      };
+    }
+
+    if (e.type === "message.part.updated") {
+      const props = e.properties as
+        | {
+            delta?: unknown;
+            part?: {
+              id?: unknown;
+              messageID?: unknown;
+              type?: unknown;
+              text?: unknown;
+              tool?: unknown;
+              state?: { status?: unknown; title?: unknown; error?: unknown };
+            };
+          }
+        | undefined;
+      const part = props?.part;
+      if (part == null) return null;
+      const partId =
+        typeof part.id === "string" && part.id !== "" ? part.id : null;
+      const messageId =
+        typeof part.messageID === "string" ? part.messageID : null;
+
+      if (part.type === "text" || part.type === "reasoning") {
+        if (!isAssistantMessage(messageId)) return null;
+        const kind: PartTextKind =
+          part.type === "reasoning" ? "reasoning" : "text";
+        if (partId != null) registerPartKind(partId, kind);
+        if (typeof props?.delta === "string" && props.delta !== "") {
+          return {
+            type: kind === "text" ? "text-delta" : "reasoning-delta",
+            text: props.delta,
+          };
+        }
+        if (partId == null) return null;
+        const text = typeof part.text === "string" ? part.text : "";
+        return deltaFromPart(partId, kind, text);
       }
-      if (status === "completed" || status === "error") {
-        const detail =
-          status === "error"
-            ? typeof part.state?.error === "string"
-              ? part.state.error
-              : undefined
-            : typeof part.state?.title === "string"
-              ? part.state.title
-              : undefined;
-        return { type: "tool", name, status: "end", detail };
+
+      if (part.type === "tool") {
+        const toolId = partId ?? undefined;
+        const name = typeof part.tool === "string" ? part.tool : "tool";
+        const status = part.state?.status;
+        if (status === "running" || status === "pending") {
+          const title = part.state?.title;
+          return {
+            type: "tool",
+            id: toolId,
+            name,
+            status: "start",
+            detail: typeof title === "string" ? title : undefined,
+          };
+        }
+        if (status === "completed" || status === "error") {
+          const detail =
+            status === "error"
+              ? typeof part.state?.error === "string"
+                ? part.state.error
+                : undefined
+              : typeof part.state?.title === "string"
+                ? part.state.title
+                : undefined;
+          return { type: "tool", id: toolId, name, status: "end", detail };
+        }
+        return null;
       }
+
       return null;
+    }
+
+    if (e.type === "permission.updated") {
+      const props = e.properties as
+        | { id?: unknown; title?: unknown; type?: unknown }
+        | undefined;
+      const id = props?.id;
+      if (typeof id !== "string") return null;
+      const title = typeof props?.title === "string" ? props.title : "permiso";
+      return { type: "permission", permissionId: id, summary: title };
     }
 
     return null;
   }
 
-  if (e.type === "permission.updated") {
-    const props = e.properties as
-      | { id?: unknown; title?: unknown; type?: unknown }
-      | undefined;
-    const id = props?.id;
-    if (typeof id !== "string") return null;
-    const title = typeof props?.title === "string" ? props.title : "permiso";
-    return { type: "permission", permissionId: id, summary: title };
-  }
-
-  return null;
+  return { map };
 }
 
 export function createOpencodeAgent(
   options: OpenCodeAgentOptions = {},
-): AgentPort {
+): OpencodeAgentPort {
   let baseUrl = (options.baseUrl ?? AGENT_OPENCODE_DEFAULT_URL).replace(
     /\/+$/,
     "",
@@ -304,41 +421,120 @@ export function createOpencodeAgent(
           yield { type: "session", sessionId };
 
           const agentName = mapAgentMode(req.extras);
-          const parts = buildOpenCodeParts(req.parts, effortSuffix(req));
+          const variant = resolveVariant(req);
+          const parts = buildOpenCodeParts(req.parts, "");
           if (parts.length === 0) {
             parts.push({ type: "text", text: "[turno vacío]" });
           }
 
-          await httpPost(
-            baseUrl,
-            `/session/${encodeURIComponent(sessionId)}/prompt_async`,
-            {
-              model: {
-                providerID: req.model.providerId,
-                modelID: req.model.modelId,
-              },
-              ...(agentName != null ? { agent: agentName } : {}),
-              parts,
+          const promptBody = {
+            model: {
+              providerID: req.model.providerId,
+              modelID: req.model.modelId,
             },
-            directory,
-            signal,
-          );
+            ...(agentName != null ? { agent: agentName } : {}),
+            ...(variant != null ? { variant } : {}),
+            parts,
+          };
 
-          // Escucha SSE hasta session.idle de ESTA sesión.
+          // OpenCode docs: GET /event?directory=… → server.connected, luego bus.
+          // Mismo directory que session/prompt_async. Si el SSE del webview no
+          // entrega deltas, GET /session/:id/message completa el turno.
+          const sseParts = createSsePartTracker();
+          let promptSent = false;
+          let emittedText = "";
+          let emittedReasoning = "";
+
+          const pollUntilStable = async (
+            emit: (ev: AgentEvent) => void,
+          ): Promise<void> => {
+            let stable = 0;
+            let lastText = "";
+            for (let i = 0; i < 120 && !signal.aborted; i += 1) {
+              await sleep(450, signal).catch(() => {});
+              if (!promptSent) continue;
+              try {
+                const rows = await httpGet<MessageRow[]>(
+                  baseUrl,
+                  `/session/${encodeURIComponent(sessionId)}/message`,
+                  directory,
+                );
+                const { text, reasoning } = latestAssistantText(rows);
+                if (reasoning.length > emittedReasoning.length) {
+                  emit({
+                    type: "reasoning-delta",
+                    text: reasoning.slice(emittedReasoning.length),
+                  });
+                  emittedReasoning = reasoning;
+                }
+                if (text.length > emittedText.length) {
+                  emit({
+                    type: "text-delta",
+                    text: text.slice(emittedText.length),
+                  });
+                  emittedText = text;
+                  stable = 0;
+                  lastText = text;
+                } else if (text !== "" && text === lastText) {
+                  stable += 1;
+                  if (stable >= 3) return;
+                }
+              } catch {
+                // Turno en curso.
+              }
+            }
+          };
+
           for await (const raw of readSse(
             baseUrl,
             "/event",
             directory,
             signal,
           )) {
-            const mapped = mapSseToAgentEvents(raw, sessionId);
+            const eventType =
+              typeof raw === "object" &&
+              raw !== null &&
+              typeof (raw as { type?: unknown }).type === "string"
+                ? (raw as { type: string }).type
+                : "";
+
+            if (!promptSent && eventType === "server.connected") {
+              await httpPost(
+                baseUrl,
+                `/session/${encodeURIComponent(sessionId)}/prompt_async`,
+                promptBody,
+                directory,
+                signal,
+              );
+              promptSent = true;
+            }
+
+            const mapped = sseParts.map(raw, sessionId);
             if (mapped != null) {
-              yield mapped;
-              if (mapped.type === "done" || mapped.type === "error") {
-                break;
+              if (mapped.type === "text-delta") emittedText += mapped.text;
+              if (mapped.type === "reasoning-delta") {
+                emittedReasoning += mapped.text;
               }
+              yield mapped;
+              if (mapped.type === "done" || mapped.type === "error") return;
             }
           }
+
+          if (!promptSent) {
+            yield {
+              type: "error",
+              message:
+                "OpenCode no envió server.connected en GET /event. ¿CORS y directory correctos?",
+            };
+            return;
+          }
+
+          const pending: AgentEvent[] = [];
+          await pollUntilStable((ev) => {
+            pending.push(ev);
+          });
+          for (const ev of pending) yield ev;
+          yield { type: "done" };
         } catch (err) {
           if (signal.aborted) {
             yield { type: "error", message: "Turno detenido." };
@@ -406,14 +602,60 @@ export function createOpencodeAgent(
           directory: s.directory ?? null,
         }));
     },
+
+    setBaseUrl(url: string) {
+      baseUrl = url.replace(/\/+$/, "");
+    },
   };
 }
 
-/** extras.agent → nombre de agente OpenCode (ask/plan/build). */
+/** extras.agent → nombre de agente OpenCode (`GET /agent`). */
 function mapAgentMode(extras: Record<string, unknown>): string | null {
   const raw = extras.agent;
   if (typeof raw !== "string" || raw === "") return null;
   if (raw === "agent") return "build";
-  if (raw === "ask" || raw === "plan" || raw === "build") return raw;
+  if (raw === "ask") return "general";
+  if (raw === "plan" || raw === "build" || raw === "general" || raw === "explore") {
+    return raw;
+  }
   return raw;
+}
+
+type MessageRow = {
+  info?: { role?: string };
+  parts?: Array<{ type?: string; text?: string }>;
+};
+
+function latestAssistantText(rows: MessageRow[]): {
+  text: string;
+  reasoning: string;
+} {
+  const assistants = rows.filter((row) => row.info?.role === "assistant");
+  const last = assistants[assistants.length - 1];
+  if (last == null) return { text: "", reasoning: "" };
+
+  let text = "";
+  let reasoning = "";
+  for (const part of last.parts ?? []) {
+    if (part.type === "text" && typeof part.text === "string") text += part.text;
+    if (part.type === "reasoning" && typeof part.text === "string") {
+      reasoning += part.text;
+    }
+  }
+  return { text, reasoning };
+}
+
+async function sleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return;
+  await new Promise<void>((resolve, reject) => {
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      "abort",
+      () => {
+        clearTimeout(t);
+        reject(new DOMException("Aborted", "AbortError"));
+      },
+      { once: true },
+    );
+  });
 }
