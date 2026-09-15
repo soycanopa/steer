@@ -1,8 +1,7 @@
-// LayersPanel — navegador de capas estilo Webflow/Figma: árbol del DOM
-// del preview empujado por el bridge. Las ramas con hijos son
-// colapsables (control de densidad) y click = seleccionar el nodo.
+// LayersPanel — capas del DOM (bridge) + páginas del proyecto (src/routes).
+
 import { useState } from "react";
-import { ChevronDown, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
 
 export type LayerNodeView = {
   id: string;
@@ -14,14 +13,33 @@ export type LayerNodeView = {
   children: LayerNodeView[];
 };
 
-export type LayersPanelProps = {
-  nodes: LayerNodeView[];
-  onSelect(id: string): void;
+export type PageRouteView = {
+  path: string;
+  label: string;
+  file: string;
+  active: boolean;
 };
 
-export function LayersPanel({ nodes, onSelect }: LayersPanelProps) {
-  // Densidad: ids colapsados. Estado local de UI, se reinicia al cambiar
-  // de página (el bridge re-empuja el árbol con ids nuevos).
+export type LayersTreeState = "idle" | "loading" | "empty" | "ready";
+
+export type LayersPanelProps = {
+  nodes: LayerNodeView[];
+  pages: PageRouteView[];
+  treeState: LayersTreeState;
+  onSelect(id: string): void;
+  onSelectPage(path: string): void;
+};
+
+type PanelTab = "layers" | "pages";
+
+export function LayersPanel({
+  nodes,
+  pages,
+  treeState,
+  onSelect,
+  onSelectPage,
+}: LayersPanelProps) {
+  const [tab, setTab] = useState<PanelTab>("layers");
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
 
   function toggle(id: string) {
@@ -38,30 +56,162 @@ export function LayersPanel({ nodes, onSelect }: LayersPanelProps) {
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-1)]">
-      <div className="flex h-8 shrink-0 items-center border-b border-[var(--line)] px-3">
-        <span className="font-mono text-[length:var(--fs-0)] tracking-wider text-[var(--text-2)] uppercase">
-          Capas
-        </span>
+      <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+        <TabButton
+          active={tab === "layers"}
+          onClick={() => setTab("layers")}
+          icon={Layers}
+          label="Capas"
+        />
+        <TabButton
+          active={tab === "pages"}
+          onClick={() => setTab("pages")}
+          icon={FileText}
+          label="Páginas"
+        />
       </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
-        {nodes.length === 0 ? (
-          <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
-            Esperando el árbol del preview…
-          </p>
+        {tab === "pages" ? (
+          <PagesMenu pages={pages} onSelectPage={onSelectPage} />
         ) : (
-          nodes.map((node) => (
-            <LayerRow
-              key={node.id}
-              node={node}
-              depth={0}
-              collapsed={collapsed}
-              onToggle={toggle}
-              onSelect={onSelect}
-            />
-          ))
+          <LayersTree
+            nodes={nodes}
+            treeState={treeState}
+            collapsed={collapsed}
+            onToggle={toggle}
+            onSelect={onSelect}
+          />
         )}
       </div>
     </div>
+  );
+}
+
+function TabButton({
+  active,
+  onClick,
+  icon: Icon,
+  label,
+}: {
+  active: boolean;
+  onClick(): void;
+  icon: typeof Layers;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`flex flex-1 items-center justify-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[length:var(--fs-0)] tracking-wide uppercase transition-colors duration-120 ${
+        active
+          ? "bg-[var(--bg-2)] text-[var(--text-0)]"
+          : "text-[var(--text-2)] hover:bg-[var(--bg-2)] hover:text-[var(--text-1)]"
+      }`}
+    >
+      <Icon size={11} strokeWidth={1.75} />
+      {label}
+    </button>
+  );
+}
+
+/** Lista de páginas reutilizable (panel de capas y popover del preview). */
+export function PagesMenu({
+  pages,
+  onSelectPage,
+}: {
+  pages: PageRouteView[];
+  onSelectPage(path: string): void;
+}) {
+  if (pages.length === 0) {
+    return (
+      <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
+        No hay rutas en{" "}
+        <span className="font-mono text-[length:var(--fs-0)]">src/routes</span>
+        .
+      </p>
+    );
+  }
+
+  return (
+    <ul>
+      {pages.map((page) => (
+        <li key={page.path}>
+          <button
+            type="button"
+            onClick={() => onSelectPage(page.path)}
+            className={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors duration-120 ${
+              page.active
+                ? "bg-[var(--accent-dim)] text-[var(--accent)]"
+                : "text-[var(--text-1)] hover:bg-[var(--bg-2)]"
+            }`}
+          >
+            <span className="text-[length:var(--fs-1)]">{page.label}</span>
+            <span
+              className="truncate font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
+              title={page.file}
+            >
+              {page.path}
+            </span>
+          </button>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function LayersTree({
+  nodes,
+  treeState,
+  collapsed,
+  onToggle,
+  onSelect,
+}: {
+  nodes: LayerNodeView[];
+  treeState: LayersTreeState;
+  collapsed: Set<string>;
+  onToggle(id: string): void;
+  onSelect(id: string): void;
+}) {
+  if (treeState === "idle") {
+    return (
+      <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
+        Arranca el preview para ver las capas.
+      </p>
+    );
+  }
+
+  if (treeState === "loading") {
+    return (
+      <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
+        Cargando capas del preview…
+      </p>
+    );
+  }
+
+  if (nodes.length === 0) {
+    return (
+      <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
+        {treeState === "empty"
+          ? "Esta página no tiene nodos con source. Activa TanStack Devtools en el proyecto."
+          : "Sin capas en esta página."}
+      </p>
+    );
+  }
+
+  return (
+    <>
+      {nodes.map((node) => (
+        <LayerRow
+          key={node.id}
+          node={node}
+          depth={0}
+          collapsed={collapsed}
+          onToggle={onToggle}
+          onSelect={onSelect}
+        />
+      ))}
+    </>
   );
 }
 
