@@ -2,7 +2,7 @@
 // importar UI + state + adapters + wrappers Tauri. Cualquier import de
 // un adapter desde un componente React es un bug.
 
-import { createAppStore } from "@steer/app-state";
+import { createAppStore, type SteerStore } from "@steer/app-state";
 import {
   AGENT_OPENCODE_DEFAULT_URL,
   createOpencodeAgent,
@@ -51,8 +51,8 @@ const agents: AgentPort[] = [
 // Conservar el store entre HMR de Vite; sin esto el proyecto “desaparece” al
 // recargar módulos en dev aunque prefs.json siga teniendo lastProject.
 const hot = import.meta.hot;
-export const store =
-  hot?.data.store ??
+export const store: SteerStore =
+  (hot?.data.store as SteerStore | undefined) ??
   createAppStore({ projectPort, previewPort, prefs, agents });
 if (hot) hot.data.store = store;
 

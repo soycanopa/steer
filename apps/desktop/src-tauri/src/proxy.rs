@@ -19,8 +19,6 @@ use axum::Router;
 use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use tokio::sync::{oneshot, Mutex};
 
-use crate::process;
-
 /// bridge.js embebido en el binario: se sirve igual en dev que empaquetado.
 const BRIDGE_JS: &str = include_str!("../../../../packages/preview-bridge/src/bridge.js");
 
@@ -58,7 +56,7 @@ pub async fn proxy_start(
     // "Upstream inalcanzable" en el iframe por race al reabrir).
     let deadline = Instant::now() + Duration::from_secs(30);
     let upstream = loop {
-        if let Some(url) = process::resolve_upstream_url(&upstream_url) {
+        if let Some(url) = crate::upstream_probe::resolve(&upstream_url).await {
             break url;
         }
         if Instant::now() >= deadline {
@@ -175,19 +173,7 @@ async fn proxy_fallback(
 }
 
 async fn upstream_http_ready(url: &str) -> bool {
-    let client = match reqwest::Client::builder()
-        .timeout(Duration::from_secs(2))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    client
-        .get(url)
-        .send()
-        .await
-        .map(|res| res.status().is_success() || res.status().is_redirection())
-        .unwrap_or(false)
+    crate::upstream_probe::ready(url).await
 }
 
 async fn forward_http(state: Arc<ProxyState>, request: Request) -> Result<Response, String> {

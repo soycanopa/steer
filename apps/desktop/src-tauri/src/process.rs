@@ -29,53 +29,16 @@ pub fn tail(lines: &SharedLines, n: usize) -> Vec<String> {
     guard[start..].to_vec()
 }
 
-/// Preferencia histórica: algunos clientes HTTP fallan con `localhost`.
+/// `localhost` → `127.0.0.1` para evitar fallos IPv6 en reqwest/hyper.
 pub fn normalize_upstream_url(url: &str) -> String {
     url.trim_end_matches('/')
         .replace("http://localhost:", "http://127.0.0.1:")
         .replace("https://localhost:", "https://127.0.0.1:")
 }
 
-/// Variantes loopback: Vite suele anunciar `localhost` (IPv6) y Steer
-/// probaba solo `127.0.0.1`, dejando el preview en "caído".
-pub fn upstream_url_candidates(url: &str) -> Vec<String> {
-    let base = url.trim_end_matches('/');
-    let mut candidates = vec![base.to_string()];
-    if base.contains("127.0.0.1") {
-        candidates.push(base.replace("127.0.0.1", "localhost"));
-    } else if base.contains("localhost") {
-        candidates.push(base.replace("localhost", "127.0.0.1"));
-    }
-    candidates
-}
-
-fn upstream_http_ready_one(url: &str) -> bool {
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(2000))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    client
-        .get(url)
-        .send()
-        .map(|res| res.status().is_success() || res.status().is_redirection())
-        .unwrap_or(false)
-}
-
 /// El preview proxy necesita HTTP real, no solo un puerto TCP abierto.
 pub fn upstream_http_ready(url: &str) -> bool {
-    upstream_url_candidates(url)
-        .iter()
-        .any(|candidate| upstream_http_ready_one(candidate))
-}
-
-/// Devuelve la variante loopback que realmente responde HTTP.
-pub fn resolve_upstream_url(url: &str) -> Option<String> {
-    upstream_url_candidates(url)
-        .into_iter()
-        .find(|candidate| upstream_http_ready_one(candidate))
+    crate::upstream_probe::ready_blocking(url)
 }
 
 /// Puerto TCP escuchando en loopback (reutilizado por devserver y opencode).
