@@ -2,11 +2,11 @@ export { AppShell } from "./AppShell";
 export type { AppShellProps } from "./AppShell";
 export { ChatPanel } from "./ChatPanel";
 export type {
-  AgentModeUi,
   AgentSessionItemView,
   ChatAttachmentView,
   ChatPanelProps,
   ModelOptionView,
+  PermissionPolicyUi,
   PendingCommentView,
   TranscriptBlockView,
   TranscriptToolView,

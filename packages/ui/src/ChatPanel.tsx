@@ -7,6 +7,7 @@ import {
   ChevronDown,
   ChevronUp,
   History,
+  Lock,
   MessagesSquare,
   Pin,
   Plus,
@@ -16,16 +17,15 @@ import {
 } from "lucide-react";
 import type { ApplyPayload, Intent } from "@steer/domain";
 
-export type AgentModeUi = "ask" | "plan" | "agent";
+export type PermissionPolicyUi = "default" | "always";
 
-const AGENT_MODES: Array<{
-  id: AgentModeUi;
+const PERMISSION_POLICIES: Array<{
+  id: PermissionPolicyUi;
   label: string;
   hint: string;
 }> = [
-  { id: "ask", label: "Ask", hint: "Solo pregunta / explica" },
-  { id: "plan", label: "Plan", hint: "Propone cambios sin escribir" },
-  { id: "agent", label: "Agent", hint: "Edita el repo (build)" },
+  { id: "default", label: "Default", hint: "Pide permiso en cada tool" },
+  { id: "always", label: "Always approved", hint: "Auto-aprueba las tools" },
 ];
 
 export type AgentSessionItemView = {
@@ -91,7 +91,7 @@ export type ChatPanelProps = {
   pendingComments: PendingCommentView[];
   models: ModelOptionView[];
   selectedModelKey: string | null;
-  agentMode: AgentModeUi;
+  permissionPolicy: PermissionPolicyUi;
   agentBusy: boolean;
   agentOnline: boolean;
   /** Sesiones OpenCode del proyecto (picker). */
@@ -102,7 +102,7 @@ export type ChatPanelProps = {
   onNewSession(): void;
   onSelectSession(id: string): void;
   onSelectModel(key: string): void;
-  onSetAgentMode(mode: AgentModeUi): void;
+  onSetPermissionPolicy(policy: PermissionPolicyUi): void;
   onRefreshAgentSessions(): void;
   onBindAgentSession(id: string): void;
   onAbort(): void;
@@ -121,7 +121,7 @@ export function ChatPanel({
   pendingComments,
   models,
   selectedModelKey,
-  agentMode,
+  permissionPolicy,
   agentBusy,
   agentOnline,
   agentSessions,
@@ -131,7 +131,7 @@ export function ChatPanel({
   onNewSession,
   onSelectSession,
   onSelectModel,
-  onSetAgentMode,
+  onSetPermissionPolicy,
   onRefreshAgentSessions,
   onBindAgentSession,
   onAbort,
@@ -291,8 +291,8 @@ export function ChatPanel({
           models={models}
           selectedModelKey={selectedModelKey}
           onSelectModel={onSelectModel}
-          agentMode={agentMode}
-          onSetAgentMode={onSetAgentMode}
+          permissionPolicy={permissionPolicy}
+          onSetPermissionPolicy={onSetPermissionPolicy}
           agentOnline={agentOnline}
         />
       </div>
@@ -667,8 +667,8 @@ function Composer({
   models,
   selectedModelKey,
   onSelectModel,
-  agentMode,
-  onSetAgentMode,
+  permissionPolicy,
+  onSetPermissionPolicy,
   agentOnline,
 }: {
   value: string;
@@ -681,8 +681,8 @@ function Composer({
   models: ModelOptionView[];
   selectedModelKey: string | null;
   onSelectModel(key: string): void;
-  agentMode: AgentModeUi;
-  onSetAgentMode(mode: AgentModeUi): void;
+  permissionPolicy: PermissionPolicyUi;
+  onSetPermissionPolicy(policy: PermissionPolicyUi): void;
   agentOnline: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -740,54 +740,8 @@ function Composer({
         className="max-h-[140px] min-h-[96px] w-full resize-none rounded-t-[var(--radius-m)] bg-transparent px-3 pt-2.5 pb-10 text-[length:var(--fs-2)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)]"
       />
 
-      {/* Controles dentro del input */}
+      {/* Controles: modelo, luego candado de permisos, enviar. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 px-2 pb-2">
-        <div className="relative pointer-events-auto">
-          <button
-            type="button"
-            onClick={() => setModeOpen((v) => !v)}
-            title={`Modo agente: ${agentMode}`}
-            className="flex h-6 items-center gap-1 rounded-[var(--radius-s)] bg-[var(--bg-3)] px-1.5 font-mono text-[length:var(--fs-0)] text-[var(--text-1)] transition-colors duration-120 hover:text-[var(--text-0)]"
-          >
-            <Bot size={11} strokeWidth={1.75} />
-            {agentMode}
-          </button>
-          {modeOpen ? (
-            <>
-              <button
-                type="button"
-                aria-label="Cerrar"
-                className="fixed inset-0 z-10 cursor-default"
-                onClick={() => setModeOpen(false)}
-              />
-              <div className="absolute bottom-full left-0 z-20 mb-1 w-40 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-                {AGENT_MODES.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      onSetAgentMode(m.id);
-                      setModeOpen(false);
-                    }}
-                    className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
-                      agentMode === m.id
-                        ? "bg-[var(--accent-dim)]"
-                        : "hover:bg-[var(--bg-2)]"
-                    }`}
-                  >
-                    <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
-                      {m.label}
-                    </span>
-                    <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-                      {m.hint}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : null}
-        </div>
-
         <select
           aria-label="Modelo"
           value={selectedModelKey ?? ""}
@@ -812,6 +766,59 @@ function Composer({
             ))
           )}
         </select>
+
+        <div className="relative pointer-events-auto">
+          <button
+            type="button"
+            onClick={() => setModeOpen((v) => !v)}
+            title={
+              permissionPolicy === "always"
+                ? "Permisos: always approved"
+                : "Permisos: default"
+            }
+            className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] bg-[var(--bg-3)] transition-colors duration-120 hover:text-[var(--text-0)] ${
+              permissionPolicy === "always"
+                ? "text-[var(--accent)]"
+                : "text-[var(--text-1)]"
+            }`}
+          >
+            <Lock size={12} strokeWidth={1.75} />
+          </button>
+          {modeOpen ? (
+            <>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                className="fixed inset-0 z-10 cursor-default"
+                onClick={() => setModeOpen(false)}
+              />
+              <div className="absolute right-0 bottom-full z-20 mb-1 w-48 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+                {PERMISSION_POLICIES.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => {
+                      onSetPermissionPolicy(m.id);
+                      setModeOpen(false);
+                    }}
+                    className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
+                      permissionPolicy === m.id
+                        ? "bg-[var(--accent-dim)]"
+                        : "hover:bg-[var(--bg-2)]"
+                    }`}
+                  >
+                    <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
+                      {m.label}
+                    </span>
+                    <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
+                      {m.hint}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </>
+          ) : null}
+        </div>
 
         <button
           type="button"
