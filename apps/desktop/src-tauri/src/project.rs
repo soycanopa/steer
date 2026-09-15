@@ -6,6 +6,9 @@ use std::fs;
 use std::path::Path;
 
 use serde::Serialize;
+use tauri::Emitter;
+
+use crate::process;
 
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -15,6 +18,182 @@ pub struct ProjectMeta {
     package_manager: &'static str,
     has_devtools_vite: bool,
     framework_guess: &'static str,
+}
+
+#[derive(Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateProgress {
+    percent: u8,
+    message: String,
+}
+
+fn progress_from_line(line: &str, current: u8) -> u8 {
+    let lower = line.to_lowercase();
+    if lower.contains("done")
+        || lower.contains("complete")
+        || lower.contains("success")
+        || lower.contains("finished")
+    {
+        return current.max(92);
+    }
+    if lower.contains("install") || lower.contains("pnpm") || lower.contains("packages") {
+        return current.max(40).saturating_add(2).min(88);
+    }
+    if lower.contains("create")
+        || lower.contains("scaffold")
+        || lower.contains("generat")
+        || lower.contains("template")
+    {
+        return current.max(18).saturating_add(2).min(45);
+    }
+    if lower.contains("download") || lower.contains("fetch") || lower.contains("resolve") {
+        return current.max(28).saturating_add(1).min(55);
+    }
+    current.saturating_add(1).min(90)
+}
+
+fn progress_message(line: &str) -> String {
+    let trimmed = line.trim();
+    if trimmed.len() > 120 {
+        format!("{}…", trimmed.chars().take(117).collect::<String>())
+    } else {
+        trimmed.to_string()
+    }
+}
+
+#[tauri::command]
+pub async fn project_create_start(
+    app: tauri::AppHandle,
+    parent_dir: String,
+    name: String,
+) -> Result<ProjectMeta, String> {
+    let project_name = validate_project_name(&name)?;
+    let parent = Path::new(&parent_dir);
+    if !parent.is_dir() {
+        return Err(format!("La carpeta padre no existe: {parent_dir}"));
+    }
+
+    let target = parent.join(&project_name);
+    if target.exists() {
+        let not_empty = fs::read_dir(&target)
+            .map_err(|e| format!("No pude leer {target:?}: {e}"))?
+            .next()
+            .is_some();
+        if not_empty {
+            return Err(format!(
+                "Ya existe una carpeta con ese nombre y no está vacía: {}",
+                target.display()
+            ));
+        }
+    }
+
+    let _ = app.emit(
+        "project-create-progress",
+        CreateProgress {
+            percent: 5,
+            message: "Preparando el proyecto…".to_string(),
+        },
+    );
+
+    let parent_for_task = parent_dir.clone();
+    let app_for_task = app.clone();
+    tokio::task::spawn_blocking(move || {
+        let args = [
+            "@tanstack/cli@latest",
+            "create",
+            &project_name,
+            "-y",
+            "--non-interactive",
+            "--package-manager",
+            "pnpm",
+        ];
+        let percent = std::sync::Mutex::new(8u8);
+        process::run_and_wait_with_progress(
+            Path::new(&parent_for_task),
+            "npx",
+            &args,
+            move |line| {
+                let mut guard = percent.lock().expect("create progress poisoned");
+                *guard = progress_from_line(line, *guard);
+                let current = *guard;
+                let _ = app_for_task.emit(
+                    "project-create-progress",
+                    CreateProgress {
+                        percent: current,
+                        message: progress_message(line),
+                    },
+                );
+            },
+        )
+    })
+    .await
+    .map_err(|e| format!("Error interno al crear el proyecto: {e}"))??;
+
+    let _ = app.emit(
+        "project-create-progress",
+        CreateProgress {
+            percent: 96,
+            message: "Abriendo el proyecto…".to_string(),
+        },
+    );
+
+    let root = target.to_string_lossy().to_string();
+    if !target.join("package.json").is_file() {
+        return Err(
+            "El CLI terminó pero no hay package.json — revisa la red o vuelve a intentar."
+                .to_string(),
+        );
+    }
+
+    project_open(root)
+}
+
+/// Normaliza a kebab-case minúscula (reglas del CLI TanStack / npm).
+fn normalize_project_name(name: &str) -> String {
+    let mut out = String::new();
+    let mut prev_hyphen = false;
+    for c in name.trim().chars() {
+        if c.is_ascii_alphanumeric() {
+            for lower in c.to_lowercase() {
+                out.push(lower);
+            }
+            prev_hyphen = false;
+        } else if c.is_whitespace() || c == '_' || c == '-' {
+            if !out.is_empty() && !prev_hyphen {
+                out.push('-');
+                prev_hyphen = true;
+            }
+        }
+    }
+    while out.ends_with('-') {
+        out.pop();
+    }
+    out
+}
+
+fn validate_project_name(name: &str) -> Result<String, String> {
+    if name.trim().contains('/') || name.trim().contains('\\') || name.trim().contains("..") {
+        return Err("El nombre no puede incluir rutas.".to_string());
+    }
+
+    let normalized = normalize_project_name(name);
+    if normalized.is_empty() {
+        return Err("El nombre no puede estar vacío.".to_string());
+    }
+    if normalized.len() > 64 {
+        return Err("El nombre es demasiado largo (máx. 64 caracteres).".to_string());
+    }
+    let first = normalized.chars().next().unwrap_or(' ');
+    if !first.is_ascii_lowercase() {
+        return Err("El nombre debe empezar con una letra minúscula.".to_string());
+    }
+    if normalized
+        .chars()
+        .any(|c| !c.is_ascii_lowercase() && !c.is_ascii_digit() && c != '-')
+    {
+        return Err("Usa solo minúsculas, números y guiones (ej. mi-app).".to_string());
+    }
+    Ok(normalized)
 }
 
 #[tauri::command]
@@ -226,6 +405,57 @@ fn route_label(path: &str) -> String {
         .to_string()
 }
 
+fn patch_vite_config_for_devtools(root: &Path) -> Result<(), String> {
+    for ext in ["ts", "mts", "js", "mjs"] {
+        let path = root.join(format!("vite.config.{ext}"));
+        if !path.is_file() {
+            continue;
+        }
+        let content = fs::read_to_string(&path)
+            .map_err(|e| format!("No pude leer {path:?}: {e}"))?;
+        if content.contains("@tanstack/devtools-vite") {
+            return Ok(());
+        }
+        let import_line = "import { devtools } from '@tanstack/devtools-vite'\n";
+        let mut patched = if content.contains("devtools-vite") {
+            content
+        } else {
+            format!("{import_line}{content}")
+        };
+        if let Some(idx) = patched.find("plugins:") {
+            if let Some(bracket) = patched[idx..].find('[') {
+                let insert_at = idx + bracket + 1;
+                patched.insert_str(insert_at, "\n    devtools(),");
+            }
+        } else {
+            return Err(
+                "vite.config sin array `plugins` — no pude inyectar TanStack Devtools."
+                    .to_string(),
+            );
+        }
+        fs::write(&path, patched).map_err(|e| format!("No pude escribir {path:?}: {e}"))?;
+        return Ok(());
+    }
+    Err("No hay vite.config en el proyecto.".to_string())
+}
+
+#[tauri::command]
+pub async fn project_ensure_devtools(path: String) -> Result<ProjectMeta, String> {
+    let root = Path::new(&path);
+    if !root.is_dir() {
+        return Err(format!("La carpeta no existe: {path}"));
+    }
+    let pkg = read_package_json(root)?;
+    if has_dep(&pkg, "@tanstack/devtools-vite") {
+        return project_open(path);
+    }
+    let pm = detect_package_manager(root);
+    process::run_and_wait(root, pm, &["add", "-D", "@tanstack/devtools-vite"])
+        .map_err(|e| format!("No pude instalar @tanstack/devtools-vite: {e}"))?;
+    patch_vite_config_for_devtools(root)?;
+    project_open(path)
+}
+
 #[tauri::command]
 pub fn project_reveal_in_finder(path: String) -> Result<(), String> {
     let root = Path::new(&path);
@@ -253,6 +483,21 @@ pub fn project_reveal_in_finder(path: String) -> Result<(), String> {
 mod tests {
     use super::*;
     use std::fs;
+
+    #[test]
+    fn validate_project_name_rechaza_vacio_y_rutas() {
+        assert!(validate_project_name("").is_err());
+        assert!(validate_project_name("  ").is_err());
+        assert!(validate_project_name("foo/bar").is_err());
+        assert!(validate_project_name("..").is_err());
+        assert_eq!(validate_project_name("my-app").unwrap(), "my-app");
+    }
+
+    #[test]
+    fn validate_project_name_normaliza_mayusculas() {
+        assert_eq!(validate_project_name("MiApp").unwrap(), "miapp");
+        assert_eq!(validate_project_name("My Cool App").unwrap(), "my-cool-app");
+    }
 
     #[test]
     fn route_label_home_y_segmento() {

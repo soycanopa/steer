@@ -56,6 +56,118 @@ pub fn port_open(port: u16) -> bool {
         .unwrap_or(false)
 }
 
+/// Ejecuta un comando capturando stdout/stderr en vivo.
+pub fn run_and_wait_with_progress(
+    dir: &std::path::Path,
+    program: &str,
+    args: &[&str],
+    on_line: impl FnMut(&str) + Send + 'static,
+) -> Result<(), String> {
+    let on_line = Arc::new(Mutex::new(on_line));
+    let mut child = Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .spawn()
+        .map_err(|e| format!("No pude ejecutar {program}: {e}"))?;
+
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| format!("Sin stdout de {program}"))?;
+    let stderr = child
+        .stderr
+        .take()
+        .ok_or_else(|| format!("Sin stderr de {program}"))?;
+
+    thread::spawn({
+        let on_line = on_line.clone();
+        move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines().flatten() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                on_line
+                    .lock()
+                    .expect("progress callback poisoned")(&line);
+            }
+        }
+    });
+
+    thread::spawn({
+        let on_line = on_line.clone();
+        move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines().flatten() {
+                if line.trim().is_empty() {
+                    continue;
+                }
+                on_line
+                    .lock()
+                    .expect("progress callback poisoned")(&line);
+            }
+        }
+    });
+
+    let status = child
+        .wait()
+        .map_err(|e| format!("No pude esperar {program}: {e}"))?;
+
+    if status.success() {
+        return Ok(());
+    }
+
+    Err(format!(
+        "El comando {program} falló (código {}).",
+        status.code().unwrap_or(-1)
+    ))
+}
+
+/// Ejecuta un comando y devuelve error con las últimas líneas de salida.
+pub fn run_and_wait(dir: &std::path::Path, program: &str, args: &[&str]) -> Result<(), String> {
+    let output = Command::new(program)
+        .args(args)
+        .current_dir(dir)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .stdin(Stdio::null())
+        .output()
+        .map_err(|e| format!("No pude ejecutar {program}: {e}"))?;
+
+    if output.status.success() {
+        return Ok(());
+    }
+
+    let combined = format!(
+        "{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr),
+    );
+    let tail = combined
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    if tail.is_empty() {
+        Err(format!(
+            "El comando {program} falló (código {}).",
+            output.status.code().unwrap_or(-1)
+        ))
+    } else {
+        Err(format!("El comando {program} falló:\n{tail}"))
+    }
+}
+
 /// Spawn en `dir` en su propio grupo de procesos (Unix) para poder
 /// matar el árbol completo (pnpm → vite) y no dejar huérfanos.
 pub fn spawn_in_dir(dir: &std::path::Path, program: &str, args: &[&str]) -> Result<Child, String> {
