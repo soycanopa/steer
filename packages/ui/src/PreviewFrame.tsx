@@ -536,13 +536,9 @@ export function PreviewFrame({
         </div>
           </div>
 
+          <div className="flex min-h-0 flex-1 justify-center overflow-hidden rounded-[var(--radius-s)] bg-[var(--bg-0)]">
           <div
-            className={`flex min-h-0 flex-1 justify-center overflow-hidden rounded-[var(--radius-s)] ${
-            viewportWidth == null ? "bg-white" : "bg-[var(--bg-2)]"
-          }`}
-          >
-          <div
-            className="h-full w-full shrink-0 overflow-hidden rounded-[var(--radius-s)] bg-white transition-[width] duration-200 ease-out"
+            className="h-full w-full shrink-0 overflow-hidden rounded-[var(--radius-s)] bg-[var(--bg-0)] transition-[width] duration-200 ease-out"
             style={{
               width: viewportWidth == null ? "100%" : `${viewportWidth}px`,
               maxWidth: "100%",
