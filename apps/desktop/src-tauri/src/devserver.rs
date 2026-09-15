@@ -1,7 +1,7 @@
 // devserver.rs — ciclo de vida del dev server del proyecto (TRD §4.1).
 // Reutilizar si ya responde; si no, spawn de `pm run dev`, extraer la URL
-// del stdout (o convención :3000) y health-check hasta 30s. Steer solo
-// mata los procesos que ella misma arrancó.
+// real del stdout y health-check hasta 30s. Steer solo mata los procesos
+// que ella misma arrancó.
 
 use std::collections::HashMap;
 use std::fs;
@@ -11,7 +11,7 @@ use std::sync::Mutex;
 use std::time::Duration;
 use std::time::Instant;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 
 use crate::process;
 use crate::process::SharedLines;
@@ -35,28 +35,63 @@ pub fn new_map() -> DevServerMap {
     Mutex::new(HashMap::new())
 }
 
-// ---- Estado persistente del server (sobrevive al cierre de la app para
-// que reabrir un proyecto sea instantáneo; TRD §4.1.4 de reutilización).
+// ---- Estado persistente de los dev servers (sobrevive al cierre de la app
+// para que reabrir un proyecto sea instantáneo; TRD §4.1.4 de reutilización).
+//
+// Guardamos la URL REAL por proyecto, no el puerto por convención: como todo
+// scaffold arranca con `vite dev --port 3000`, varios proyectos hacen que Vite
+// incremente el puerto (3001, 3002…) y atribuir :3000 al proyecto equivocado
+// mostraba el preview del proyecto viejo al reiniciar.
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedDev {
+    url: String,
+    pgid: i32,
+}
+
+#[derive(Default, Serialize, Deserialize)]
+struct PersistedState {
+    #[serde(default)]
+    servers: HashMap<String, PersistedDev>,
+}
 
 fn state_file() -> std::path::PathBuf {
     std::env::temp_dir().join("steer-devserver.json")
 }
 
-fn read_state() -> Option<(String, i32)> {
-    let raw = fs::read_to_string(state_file()).ok()?;
-    let v: serde_json::Value = serde_json::from_str(&raw).ok()?;
-    let path = v.get("path")?.as_str()?.to_string();
-    let pgid = v.get("pgid")?.as_i64()? as i32;
-    Some((path, pgid))
+/// Estado persistido. Formato viejo `{ path, pgid }` (sin `servers`) se
+/// deserializa a un mapa vacío: se vuelve a spawnear en vez de reutilizar un
+/// :3000 ajeno.
+fn read_state() -> PersistedState {
+    fs::read_to_string(state_file())
+        .ok()
+        .and_then(|raw| serde_json::from_str(&raw).ok())
+        .unwrap_or_default()
 }
 
-fn write_state(path: &str, pgid: i32) {
-    let json = serde_json::json!({ "path": path, "pgid": pgid });
-    let _ = fs::write(state_file(), json.to_string());
+fn save_state(state: &PersistedState) {
+    if let Ok(json) = serde_json::to_string(state) {
+        let _ = fs::write(state_file(), json);
+    }
 }
 
-fn clear_state() {
-    let _ = fs::remove_file(state_file());
+fn upsert_state(path: &str, url: &str, pgid: i32) {
+    let mut state = read_state();
+    state.servers.insert(
+        path.to_string(),
+        PersistedDev {
+            url: url.to_string(),
+            pgid,
+        },
+    );
+    save_state(&state);
+}
+
+fn remove_state(path: &str) {
+    let mut state = read_state();
+    if state.servers.remove(path).is_some() {
+        save_state(&state);
+    }
 }
 
 #[tauri::command]
@@ -84,30 +119,40 @@ pub async fn project_dev_start(
         }
         // Proceso muerto pero entrada en mapa: limpiar y reintentar spawn.
         state.lock().expect("devserver map poisoned").remove(&path);
-        clear_state();
+        remove_state(&path);
     }
 
-    // 2. Dueño persistente (sesiones anteriores): si el server vivo en la
-    //    convención :3000 es del MISMO proyecto, reutilizar → reopen
-    //    instantáneo. Si es de OTRO proyecto, matarlo antes de arrancar.
-    match read_state() {
-        Some((state_path, pgid)) => {
-            if state_path == path {
-                if let Some(url) = probe_convention_port().await {
-                    return Ok(DevStartInfo { url, spawned: false });
+    // 2. Tras un reinicio el mapa en memoria está vacío. No reutilizamos
+    //    URLs persistidas: el puerto puede haberlo ocupado otro proyecto
+    //    (el preview mostraba el fixture viejo hasta cambiar de tab).
+    //    Matamos el árbol huérfano de ESTE path y spawneamos de nuevo.
+    let mut persisted = read_state();
+    {
+        let managed: Vec<String> = state
+            .lock()
+            .expect("devserver map poisoned")
+            .keys()
+            .cloned()
+            .collect();
+        let orphans: Vec<String> = persisted
+            .servers
+            .keys()
+            .filter(|p| *p != &path && !managed.contains(p))
+            .cloned()
+            .collect();
+        if !orphans.is_empty() {
+            for orphan in orphans {
+                if let Some(entry) = persisted.servers.remove(&orphan) {
+                    process::kill_pgid(entry.pgid);
                 }
-                clear_state(); // server ya muerto
-            } else if probe_convention_port().await.is_some() {
-                process::kill_pgid(pgid);
-                clear_state();
             }
+            save_state(&persisted);
         }
-        None => {
-            // Sin estado propio: dev server ajeno en :3000 → TRD §4.1.4 reutilizar.
-            if let Some(url) = probe_convention_port().await {
-                return Ok(DevStartInfo { url, spawned: false });
-            }
-        }
+    }
+    if let Some(entry) = persisted.servers.remove(&path) {
+        process::kill_pgid(entry.pgid);
+        save_state(&persisted);
+        tokio::time::sleep(Duration::from_millis(400)).await;
     }
     // 3. Script `dev` presente.
     let pkg = crate::project::read_package_json(root)?;
@@ -131,7 +176,7 @@ pub async fn project_dev_start(
     process::drain(stdout, logs.clone());
     process::drain(stderr, logs.clone());
 
-    // 5. Esperar URL del stdout o convención :3000, con health-check (30s).
+    // 5. Esperar la URL real del stdout, con health-check (30s).
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut url: Option<String> = None;
 
@@ -143,7 +188,7 @@ pub async fn project_dev_start(
                 "El dev server murió al arrancar ({status}). Últimas líneas:\n{tail}"
             ));
         }
-        if let Some(found) = url_from_logs(&logs).or_else(|| probe_convention_port_sync()) {
+        if let Some(found) = url_from_logs(&logs) {
             if let Some(ready) = crate::upstream_probe::resolve(&found).await {
                 url = Some(ready);
                 break;
@@ -159,7 +204,7 @@ pub async fn project_dev_start(
                 .lock()
                 .expect("devserver map poisoned")
                 .insert(path.clone(), ManagedDev { child, url: url.clone() });
-            write_state(&path, pgid);
+            upsert_state(&path, &url, pgid);
             Ok(DevStartInfo { url, spawned: true })
         }
         None => {
@@ -175,12 +220,25 @@ pub async fn project_dev_start(
 #[tauri::command]
 pub fn project_dev_stop(path: String, state: tauri::State<'_, DevServerMap>) {
     // Solo mata lo que Steer arrancó. Un server ajeno queda intacto.
-    if let Ok(mut map) = state.lock() {
+    let killed_tree = if let Ok(mut map) = state.lock() {
         if let Some(mut dev) = map.remove(&path) {
             process::kill_tree(&mut dev.child);
-            clear_state();
+            true
+        } else {
+            false
+        }
+    } else {
+        false
+    };
+    // Server reutilizado de una sesión anterior: no hay Child en mano, pero sí
+    // el pgid persistido.
+    if !killed_tree {
+        let persisted = read_state();
+        if let Some(entry) = persisted.servers.get(&path) {
+            process::kill_pgid(entry.pgid);
         }
     }
+    remove_state(&path);
 }
 
 fn url_from_logs(logs: &SharedLines) -> Option<String> {
@@ -219,17 +277,36 @@ fn port_of(url: &str) -> u16 {
         .unwrap_or(0)
 }
 
-fn probe_convention_port_sync() -> Option<String> {
-    crate::upstream_probe::resolve_blocking("http://localhost:3000")
-}
-
-async fn probe_convention_port() -> Option<String> {
-    crate::upstream_probe::resolve("http://localhost:3000").await
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn persiste_url_real_por_proyecto() {
+        let mut state = PersistedState::default();
+        state.servers.insert(
+            "/tmp/a".to_string(),
+            PersistedDev {
+                url: "http://127.0.0.1:3001".to_string(),
+                pgid: 42,
+            },
+        );
+        let raw = serde_json::to_string(&state).unwrap();
+        let back: PersistedState = serde_json::from_str(&raw).unwrap();
+        assert_eq!(
+            back.servers.get("/tmp/a").map(|d| d.url.as_str()),
+            Some("http://127.0.0.1:3001")
+        );
+        assert_eq!(back.servers.get("/tmp/a").map(|d| d.pgid), Some(42));
+    }
+
+    #[test]
+    fn estado_legacy_sin_url_queda_vacio() {
+        // Formato viejo `{ path, pgid }`: no reutilizamos :3000, respawneamos.
+        let legacy = r#"{"path":"/tmp/a","pgid":42}"#;
+        let state: PersistedState = serde_json::from_str(legacy).unwrap();
+        assert!(state.servers.is_empty());
+    }
 
     #[test]
     fn extrae_url_de_linea_vite() {
