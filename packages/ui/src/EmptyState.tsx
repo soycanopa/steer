@@ -7,6 +7,8 @@ export type EmptyStateProps = {
   error: string | null;
   onOpenProject(): void;
   onOpenRecent(path: string): void;
+  /** Arrastra la ventana (callback del composition root). */
+  onStartDrag?(): void;
 };
 
 export function EmptyState({
@@ -15,9 +17,21 @@ export function EmptyState({
   error,
   onOpenProject,
   onOpenRecent,
+  onStartDrag,
 }: EmptyStateProps) {
   return (
-    <div className="flex h-full items-center justify-center overflow-y-auto px-6 pt-10 pb-6">
+    <div
+      data-tauri-drag-region=""
+      className="flex h-full select-none items-center justify-center overflow-y-auto px-6 pt-10 pb-6"
+      onMouseDown={(e) => {
+        if (e.button !== 0 || !onStartDrag) return;
+        const t = e.target as HTMLElement | null;
+        if (t?.closest("button, a, input, select, textarea, [role=button]")) {
+          return;
+        }
+        onStartDrag();
+      }}
+    >
       <div className="flex w-full max-w-[420px] flex-col items-center gap-6 text-center">
         <div className="flex flex-col items-center gap-1.5">
           <div className="flex items-center gap-2 text-[length:var(--fs-3)] font-semibold text-[var(--text-0)]">
