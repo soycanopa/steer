@@ -54,22 +54,20 @@ pub async fn proxy_start(
     // Un solo preview: apagar el anterior si lo hubiera.
     stop_current(&state).await;
 
-    let upstream = process::normalize_upstream_url(&upstream_url);
-
     // No devolver proxy_url hasta que el upstream sirva HTTP (evita
     // "Upstream inalcanzable" en el iframe por race al reabrir).
     let deadline = Instant::now() + Duration::from_secs(30);
-    while Instant::now() < deadline {
-        if upstream_http_ready(&upstream).await {
-            break;
+    let upstream = loop {
+        if let Some(url) = process::resolve_upstream_url(&upstream_url) {
+            break url;
+        }
+        if Instant::now() >= deadline {
+            return Err(format!(
+                "El dev server en {upstream_url} no responde HTTP. ¿Está corriendo `pnpm dev`?"
+            ));
         }
         tokio::time::sleep(Duration::from_millis(400)).await;
-    }
-    if !upstream_http_ready(&upstream).await {
-        return Err(format!(
-            "El dev server en {upstream} no responde HTTP. ¿Está corriendo `pnpm dev`?"
-        ));
-    }
+    };
 
     let listener = TcpListener::bind("127.0.0.1:0")
         .map_err(|e| format!("No pude abrir puerto local para el proxy: {e}"))?;

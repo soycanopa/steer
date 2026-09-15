@@ -74,8 +74,7 @@ pub fn project_dev_start(
 
     // 1. Ya lo arrancamos y sigue vivo (HTTP, no solo TCP).
     if let Some(dev) = map.get(&path) {
-        let url = process::normalize_upstream_url(&dev.url);
-        if process::upstream_http_ready(&url) {
+        if let Some(url) = process::resolve_upstream_url(&dev.url) {
             return Ok(DevStartInfo {
                 url,
                 spawned: false,
@@ -144,8 +143,7 @@ pub fn project_dev_start(
             ));
         }
         if let Some(found) = url_from_logs(&logs).or_else(probe_convention_port) {
-            let ready = process::normalize_upstream_url(&found);
-            if process::upstream_http_ready(&ready) {
+            if let Some(ready) = process::resolve_upstream_url(&found) {
                 url = Some(ready);
                 break;
             }
@@ -207,7 +205,7 @@ fn extract_local_url(line: &str) -> Option<String> {
         let candidate = rest[..end].trim_end_matches('/');
         // Validar que haya puerto.
         if port_of(candidate) > 0 {
-            return Some(process::normalize_upstream_url(candidate));
+            return Some(candidate.to_string());
         }
     }
     None
@@ -222,8 +220,7 @@ fn port_of(url: &str) -> u16 {
 
 fn probe_convention_port() -> Option<String> {
     // Convención del prototipo: TanStack Start dev en :3000.
-    let url = "http://127.0.0.1:3000";
-    process::upstream_http_ready(url).then(|| url.to_string())
+    process::resolve_upstream_url("http://localhost:3000")
 }
 
 #[cfg(test)]
@@ -234,7 +231,7 @@ mod tests {
     fn extrae_url_de_linea_vite() {
         assert_eq!(
             extract_local_url("  ➜  Local:   http://localhost:3000/"),
-            Some("http://127.0.0.1:3000".to_string())
+            Some("http://localhost:3000".to_string())
         );
         assert_eq!(
             extract_local_url("Local: http://127.0.0.1:5173/ (_ready)"),
