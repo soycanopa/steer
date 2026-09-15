@@ -6,6 +6,8 @@ export type PreviewStatus = "idle" | "starting" | "live" | "down";
 export type PreviewSlice = {
   previewStatus: PreviewStatus;
   previewUrl: string | null;
+  /** Ruta actual del iframe (pathname), p. ej. "/" o "/about". */
+  previewPath: string;
   previewError: string | null;
   /** Sube en cada reload para remontar el iframe. */
   reloadNonce: number;
@@ -14,6 +16,7 @@ export type PreviewSlice = {
 export const initialPreviewSlice: PreviewSlice = {
   previewStatus: "idle",
   previewUrl: null,
+  previewPath: "/",
   previewError: null,
   reloadNonce: 0,
 };

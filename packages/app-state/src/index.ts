@@ -1,6 +1,7 @@
 export type { ProjectSlice, ProjectStatus } from "./project";
 export type { PreviewSlice, PreviewStatus } from "./preview";
 export { initialPreviewSlice } from "./preview";
+export { joinPreviewPageUrl } from "./preview-url";
 export type {
   PreviewMode,
   SelectionSlice,

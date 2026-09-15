@@ -8,6 +8,9 @@ export type AgentStatus = "unknown" | "checking" | "up" | "down";
 /** Default = cada tool una vez; always = auto-aprobar. */
 export type PermissionPolicy = "default" | "always";
 
+/** Nivel de reasoning cuando el modelo lo soporta (OpenCode extras). */
+export type ReasoningEffort = "low" | "high" | "max";
+
 export type AgentSlice = {
   /** Ports disponibles (composition root). El seleccionado es el primero. */
   agentPorts: AgentPort[];
@@ -15,6 +18,8 @@ export type AgentSlice = {
   agentDetail: string | null;
   agentModels: ModelRef[];
   selectedModel: ModelRef | null;
+  /** Effort de reasoning del modelo seleccionado. */
+  reasoningEffort: ReasoningEffort;
   /** Modo ask | plan | agent (build). */
   agentMode: AgentMode;
   permissionPolicy: PermissionPolicy;
@@ -31,6 +36,7 @@ export function initialAgentSlice(agents: AgentPort[] = []): AgentSlice {
     agentDetail: null,
     agentModels: [],
     selectedModel: null,
+    reasoningEffort: "high",
     agentMode: "agent",
     permissionPolicy: "default",
     agentSessions: [],

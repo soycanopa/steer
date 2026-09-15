@@ -42,6 +42,7 @@ import {
   pickDefaultModel,
   type AgentSlice,
   type PermissionPolicy,
+  type ReasoningEffort,
 } from "./agent";
 
 // Persistencia de prefs vía host (TRD §2). El adapter real vive en
@@ -65,6 +66,8 @@ export type SteerState = ProjectSlice &
   IntentsSlice &
   AgentSlice & {
     bootstrap(): Promise<void>;
+    /** Guarda el proyecto actual en prefs (p. ej. antes de cerrar la app). */
+    persistLastProject(): Promise<void>;
     openProject(path: string): Promise<void>;
     startPreview(): Promise<void>;
     stopPreview(): Promise<void>;
@@ -93,6 +96,8 @@ export type SteerState = ProjectSlice &
     updateComment(intentId: string, body: string, steerId?: string): void;
     /** Abre el popover del pin en el preview. */
     focusComment(intentId: string): void;
+    /** Selecciona en el preview el nodo de un tweak encolado. */
+    focusEdit(intentId: string): void;
     removeQueued(intentId: string): void;
     /** UX §5.6 / Fase F: lote → AgentPort → clearOverrides en done. */
     applyQueue(): Promise<void>;
@@ -102,6 +107,7 @@ export type SteerState = ProjectSlice &
     refreshAgent(): Promise<void>;
     /** Fase F: elegir modelo de listModels(). */
     setModel(model: ModelRef): void;
+    setReasoningEffort(effort: ReasoningEffort): void;
     /** ask | plan | agent (OpenCode: build). */
     setAgentMode(mode: AgentMode): void;
     setPermissionPolicy(policy: PermissionPolicy): void;
@@ -118,6 +124,8 @@ export type SteerState = ProjectSlice &
     toggleLayers(on?: boolean): void;
     /** Selecciona un nodo desde el árbol de capas. */
     selectLayer(id: string): void;
+    /** Navega el preview a otra ruta (p. ej. desde el panel de páginas). */
+    navigatePreview(path: string): void;
     /** Historial: crear sesión nueva y activarla. */
     newSession(): void;
     selectSession(id: string): void;
@@ -155,6 +163,7 @@ function findTreeNodeBySource(
 
 type AgentBlockPatch = Partial<{
   text: string;
+  reasoning: string;
   tools: TranscriptTool[];
   status: "streaming" | "done" | "error";
 }>;
@@ -183,10 +192,17 @@ function setAgentBlock(
 function findLastStartIndex(
   tools: TranscriptTool[],
   name: string,
+  id?: string,
 ): number {
+  if (id !== undefined) {
+    for (let i = tools.length - 1; i >= 0; i -= 1) {
+      const t = tools[i];
+      if (t !== undefined && t.status === "start" && t.id === id) return i;
+    }
+  }
   for (let i = tools.length - 1; i >= 0; i -= 1) {
     const t = tools[i];
-    if (t !== undefined && t.name === name && t.status === "start") return i;
+    if (t !== undefined && t.status === "start" && t.name === name) return i;
   }
   return -1;
 }
@@ -202,12 +218,14 @@ function queueHasMissingSource(queue: Intent[]): boolean {
 
 export function createAppStore({ projectPort, previewPort, prefs, agents }: AppDeps) {
   const primaryAgent = agents[0] ?? null;
+  let bootstrapRun: Promise<void> | null = null;
 
   /** Actualiza un bloque `agent` streaming en la sesión activa. */
   function patchAgentBlock(
     blockId: string,
     patch: Partial<{
       text: string;
+      reasoning: string;
       tools: TranscriptTool[];
       status: "streaming" | "done" | "error";
     }>,
@@ -220,21 +238,44 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     projectMeta: null,
     projectError: null,
     lastProject: null,
+    projectRoutes: [],
     ...initialPreviewSlice,
     ...initialSelectionSlice,
     ...initialIntents(),
     ...initialAgentSlice(agents),
 
     async bootstrap() {
-      set({ lastProject: await prefs.getLastProject() });
-      await get().refreshAgent();
-      if (get().agentStatus === "down") {
-        for (const ms of [1200, 2400]) {
-          await new Promise((r) => setTimeout(r, ms));
+      if (bootstrapRun !== null) return bootstrapRun;
+      bootstrapRun = (async () => {
+        const lastProject = await prefs.getLastProject();
+        set({ lastProject });
+
+        // Reabrir el proyecto sin esperar a OpenCode (ensure puede tardar ~30s).
+        const openTask =
+          lastProject != null && get().projectStatus === "empty"
+            ? get().openProject(lastProject)
+            : Promise.resolve();
+
+        void (async () => {
           await get().refreshAgent();
-          if (get().agentStatus === "up") break;
-        }
-      }
+          if (get().agentStatus === "down") {
+            for (const ms of [1200, 2400]) {
+              await new Promise((r) => setTimeout(r, ms));
+              await get().refreshAgent();
+              if (get().agentStatus === "up") break;
+            }
+          }
+        })();
+
+        await openTask;
+      })();
+      return bootstrapRun;
+    },
+
+    async persistLastProject() {
+      const path = get().projectMeta?.root ?? get().lastProject;
+      if (path === null || path === "") return;
+      await prefs.setLastProject(path);
     },
 
     async openProject(path) {
@@ -247,6 +288,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       set({
         projectStatus: "opening",
         projectError: null,
+        lastProject: path,
+        projectRoutes: [],
         ...initialPreviewSlice,
         ...initialSelectionSlice,
         ...initialIntents(),
@@ -254,22 +297,27 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       try {
         const meta: ProjectMeta = await projectPort.open(path);
         // "starting" ya en este set: sin flash de estado idle (UX §5.2).
+        const routes = await projectPort.listRoutes(path);
         set({
           projectStatus: "open",
           projectMeta: meta,
           lastProject: path,
+          projectRoutes: routes,
           previewStatus: "starting",
           previewError: null,
         });
         await prefs.setLastProject(path);
         // UX.md §5.2: abierto → arrancar o reusar dev server.
         void get().startPreview();
+        // Re-probar OpenCode (ensure + health) al cambiar de proyecto.
+        void get().refreshAgent();
         // Sesiones OpenCode del directorio (picker del chat).
         void get().refreshAgentSessions();
       } catch (err) {
         set({
           projectStatus: "error",
           projectError: err instanceof Error ? err.message : String(err),
+          lastProject: path,
         });
       }
     },
@@ -282,7 +330,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       set({ previewStatus: "starting", previewError: null });
       try {
         const { url } = await projectPort.startDev(meta.root);
-        set({ previewStatus: "live", previewUrl: url });
+        set({ previewStatus: "live", previewUrl: url, previewPath: "/" });
+        previewPort.requestTree();
       } catch (err) {
         set({
           previewStatus: "down",
@@ -309,12 +358,24 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     reloadPreview() {
-      set((state) => ({ reloadNonce: state.reloadNonce + 1 }));
+      set((state) => ({
+        reloadNonce: state.reloadNonce + 1,
+      }));
     },
 
     setMode(mode) {
       const inspect = mode !== "interact";
-      set({ mode, inspectOn: inspect });
+      if (mode === "interact") {
+        set({
+          mode,
+          inspectOn: false,
+          selection: null,
+          selectedId: null,
+          hoverSelection: null,
+        });
+      } else {
+        set({ mode, inspectOn: inspect });
+      }
       previewPort.setMode(mode);
       // Compat con bridges viejos / inspect-on explícito.
       previewPort.setInspect(inspect);
@@ -487,10 +548,61 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       previewPort.focusPin(intentId);
     },
 
+    focusEdit(intentId) {
+      const intent = get().queue.find((i) => i.id === intentId);
+      if (intent?.kind !== "tweak") return;
+      const draft = get().tweaks.find(
+        (t) =>
+          t.prop === intent.prop &&
+          t.scope === intent.scope &&
+          locKey(t.selection) === locKey(intent.selection),
+      );
+      if (draft === undefined) return;
+      set({
+        selection: draft.selection,
+        selectedId: draft.steerId,
+        scope: draft.scope,
+      });
+      get().setMode("inspect");
+      previewPort.selectNode(draft.steerId);
+    },
+
     removeQueued(intentId) {
       const intent = get().queue.find((i) => i.id === intentId);
+      if (intent === undefined) return;
+
+      if (intent.kind === "tweak") {
+        const { tweaks, tweakLog, queue } = get();
+        const draft = tweaks.find(
+          (t) =>
+            t.prop === intent.prop &&
+            t.scope === intent.scope &&
+            locKey(t.selection) === locKey(intent.selection),
+        );
+        const nextTweaks =
+          draft !== undefined ? tweaks.filter((t) => t !== draft) : tweaks;
+        const nextLog =
+          draft !== undefined
+            ? tweakLog.filter(
+                (e) =>
+                  !(
+                    e.steerId === draft.steerId &&
+                    e.scope === draft.scope &&
+                    e.prop === draft.prop
+                  ),
+              )
+            : tweakLog;
+        set({
+          queue: removeIntent(queue, intentId),
+          tweaks: nextTweaks,
+          tweakLog: nextLog,
+        });
+        previewPort.setOverrides(buildOverrides(nextTweaks));
+        return;
+      }
+
       set((s) => ({ queue: removeIntent(s.queue, intentId) }));
-      if (intent !== undefined && intent.kind === "comment") {
+      if (intent.kind === "comment") {
         previewPort.removePin(intentId);
       }
     },
@@ -526,6 +638,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                       kind: "agent" as const,
                       id: crypto.randomUUID(),
                       text: "Apply bloqueado: falta data-tsd-source. Activa TanStack Devtools source injection en el proyecto.",
+                      reasoning: "",
                       tools: [],
                       status: "error" as const,
                     },
@@ -570,6 +683,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           kind: "agent",
           id: crypto.randomUUID(),
           text: reason,
+          reasoning: "",
           tools: [],
           status: "error",
         });
@@ -588,11 +702,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         kind: "agent",
         id: agentBlockId,
         text: "",
+        reasoning: "",
         tools: [],
         status: "streaming",
       });
 
       // TRD §5: la cola no se vacía hasta done con éxito. Doble apply: agentBusy.
+      // El composer se limpia al enviar; la cola de intents se conserva hasta done.
       set({
         sessions: get().sessions.map((s) =>
           s.id !== get().activeSessionId
@@ -604,6 +720,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               },
         ),
         agentBusy: true,
+        draftNote: "",
+        draftAttachments: [],
       });
 
       const sessionId = get().sessions.find((s) => s.id === get().activeSessionId)
@@ -611,6 +729,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
       const tools: TranscriptTool[] = [];
       let text = "";
+      let reasoning = "";
       let liveSessionId: SessionId | null = sessionId;
 
       const succeed = (): void => {
@@ -620,8 +739,16 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         previewPort.clearOverrides();
         patchAgentBlock(agentBlockId, {
           status: "done",
-          text: text === "" ? "Listo." : text,
+          text,
+          reasoning,
         });
+        const { previewStatus } = get();
+        const agentChangedProject =
+          payload.intents.length > 0 ||
+          tools.some((t) => t.status === "end");
+        if (previewStatus === "live" && agentChangedProject) {
+          get().reloadPreview();
+        }
         set({
           agentBusy: false,
           queue: get().queue.filter((i) => !sentIds.has(i.id)),
@@ -632,9 +759,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
       try {
         const turnParts = [
-          ...(payload.intents.length > 0 || payload.userNote !== undefined
+          ...(payload.intents.length > 0
             ? ([{ type: "intents" as const, payload }] as const)
-            : []),
+            : payload.userNote !== undefined
+              ? ([{ type: "text" as const, text: payload.userNote }] as const)
+              : []),
           ...attachments.map((a) => ({
             type: "image" as const,
             mime: a.mime,
@@ -645,7 +774,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           directory: payload.projectRoot,
           sessionId,
           model: selectedModel,
-          extras: { agent: get().agentMode },
+          extras: {
+            agent: get().agentMode,
+            ...(get().selectedModel?.capabilities.reasoning === true
+              ? { reasoning: { effort: get().reasoningEffort } }
+              : {}),
+          },
           parts: [...turnParts],
         });
 
@@ -665,12 +799,22 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               text += ev.text;
               patchAgentBlock(agentBlockId, { text });
               break;
+            case "reasoning-delta":
+              reasoning += ev.text;
+              patchAgentBlock(agentBlockId, { reasoning });
+              break;
             case "tool": {
               if (ev.status === "start") {
-                tools.push({ name: ev.name, status: "start", detail: ev.detail });
+                tools.push({
+                  id: ev.id,
+                  name: ev.name,
+                  status: "start",
+                  detail: ev.detail,
+                });
               } else {
-                const idx = findLastStartIndex(tools, ev.name);
+                const idx = findLastStartIndex(tools, ev.name, ev.id);
                 const entry: TranscriptTool = {
+                  id: ev.id,
                   name: ev.name,
                   status: "end",
                   detail: ev.detail,
@@ -767,6 +911,26 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         return;
       }
       set({ agentStatus: "checking", agentDetail: null });
+
+      if (primaryAgent.ensureRuntime != null) {
+        const directory =
+          get().projectMeta?.root ?? get().lastProject ?? "";
+        try {
+          await primaryAgent.ensureRuntime(directory);
+        } catch (err) {
+          set({
+            agentStatus: "down",
+            agentDetail:
+              err instanceof Error
+                ? err.message
+                : "No pude arrancar OpenCode.",
+            agentModels: [],
+            selectedModel: null,
+          });
+          return;
+        }
+      }
+
       const health = await primaryAgent.health();
       if (!health.ok) {
         set({
@@ -804,7 +968,20 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     setModel(model) {
-      set({ selectedModel: model });
+      const variants = model.capabilities.reasoningVariants ?? [];
+      let effort = get().reasoningEffort;
+      if (
+        model.capabilities.reasoning &&
+        variants.length > 0 &&
+        !variants.includes(effort)
+      ) {
+        effort = variants.includes("high") ? "high" : variants[0]!;
+      }
+      set({ selectedModel: model, reasoningEffort: effort });
+    },
+
+    setReasoningEffort(effort) {
+      set({ reasoningEffort: effort });
     },
 
     setAgentMode(mode) {
@@ -859,11 +1036,28 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     toggleLayers(on) {
-      set({ layersOpen: on ?? !get().layersOpen });
+      const next = on ?? !get().layersOpen;
+      set({ layersOpen: next });
+      if (next && get().previewStatus === "live") {
+        previewPort.requestTree();
+      }
     },
 
     selectLayer(id) {
       previewPort.selectNode(id);
+    },
+
+    navigatePreview(path) {
+      const normalized = path.startsWith("/") ? path : `/${path}`;
+      set({
+        previewPath: normalized,
+        selection: null,
+        selectedId: null,
+        hoverSelection: null,
+        tweaks: [],
+        tweakLog: [],
+        reloadNonce: get().reloadNonce + 1,
+      });
     },
 
     newSession() {
@@ -889,6 +1083,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         // overrides son efímeros y mueren con el documento.
         const st = store.getState();
         previewPort.setMode(st.mode);
+        previewPort.requestTree();
         break;
       }
       case "steer:select":
@@ -904,7 +1099,14 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       case "steer:navigate":
         // UX §5.9: la cola de intents (Fase E) se conservará; los drafts
         // de override son del documento anterior y se limpian.
-        store.setState({ selection: null, selectedId: null, hoverSelection: null, tweaks: [], tweakLog: [] });
+        store.setState({
+          previewPath: msg.href,
+          selection: null,
+          selectedId: null,
+          hoverSelection: null,
+          tweaks: [],
+          tweakLog: [],
+        });
         break;
       case "steer:tree": {
         store.setState({ tree: msg.nodes });
@@ -944,6 +1146,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                       kind: "agent" as const,
                       id: crypto.randomUUID(),
                       text,
+                      reasoning: "",
                       tools: [],
                       status: "error" as const,
                     },
@@ -958,9 +1161,15 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           store.getState().updateComment(msg.intentId, msg.body, msg.steerId);
           break;
         }
-        // Nuevo comentario: alinear selectedId con el pin del popover.
-        if (msg.steerId && store.getState().selectedId !== msg.steerId) {
-          store.setState({ selectedId: msg.steerId });
+        // Nuevo comentario: el bridge manda selection + steerId del nodo.
+        const patch: {
+          selectedId?: string;
+          selection?: typeof msg.selection;
+        } = {};
+        if (msg.steerId) patch.selectedId = msg.steerId;
+        if (msg.selection != null) patch.selection = msg.selection;
+        if (Object.keys(patch).length > 0) {
+          store.setState(patch);
         }
         store.getState().queueComment(msg.body);
         break;

@@ -1,4 +1,4 @@
-import type { ProjectMeta } from "@steer/ports";
+import type { ProjectMeta, ProjectRoute } from "@steer/ports";
 
 // projectSlice → ProjectPort (ARCHITECTURE §9). Habla con el puerto,
 // no con una implementación.
@@ -9,4 +9,6 @@ export type ProjectSlice = {
   projectMeta: ProjectMeta | null;
   projectError: string | null;
   lastProject: string | null;
+  /** Rutas de `src/routes` (TanStack Start). */
+  projectRoutes: ProjectRoute[];
 };

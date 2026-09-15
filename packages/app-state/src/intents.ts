@@ -5,6 +5,7 @@ import type { ApplyPayload, Intent } from "@steer/domain";
 import type { LayerNode } from "@steer/ports";
 
 export type TranscriptTool = {
+  id?: string;
   name: string;
   status: "start" | "end";
   detail?: string;
@@ -26,6 +27,7 @@ export type TranscriptBlock =
       kind: "agent";
       id: string;
       text: string;
+      reasoning: string;
       tools: TranscriptTool[];
       status: "streaming" | "done" | "error";
     };
