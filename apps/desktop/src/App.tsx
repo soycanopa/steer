@@ -74,7 +74,7 @@ export default function App() {
   const agentModels = useStore(store, (s) => s.agentModels);
   const selectedModel = useStore(store, (s) => s.selectedModel);
   const agentBusy = useStore(store, (s) => s.agentBusy);
-  const agentMode = useStore(store, (s) => s.agentMode);
+  const permissionPolicy = useStore(store, (s) => s.permissionPolicy);
   const agentSessions = useStore(store, (s) => s.agentSessions);
   const [chatWidth, setChatWidth] = useState(340);
 
@@ -227,8 +227,6 @@ export default function App() {
         modelLabel={selectedModel?.label ?? null}
         mode={mode}
         queueCount={queue.length}
-        layersOpen={layersOpen}
-        onToggleLayers={() => store.getState().toggleLayers()}
         chatOpen={chatOpen}
         onToggleChat={() => store.getState().toggleChat()}
         onStartDrag={startWindowDrag}
@@ -255,6 +253,8 @@ export default function App() {
               onRetry={() => void store.getState().startPreview()}
               onCapture={() => store.getState().capturePreview()}
               onFrameEl={setFrameEl}
+              layersOpen={layersOpen}
+              onToggleLayers={() => store.getState().toggleLayers()}
             />
           }
           middle={
@@ -287,7 +287,7 @@ export default function App() {
                 pendingComments={pendingComments}
                 models={modelOptions}
                 selectedModelKey={selectedModelKey}
-                agentMode={agentMode}
+                permissionPolicy={permissionPolicy}
                 agentSessions={agentSessionItems}
                 agentBusy={agentBusy}
                 agentOnline={agentUiStatus === "live"}
@@ -302,7 +302,9 @@ export default function App() {
                   );
                   if (m) store.getState().setModel(m);
                 }}
-                onSetAgentMode={(mode) => store.getState().setAgentMode(mode)}
+                onSetPermissionPolicy={(policy) =>
+                  store.getState().setPermissionPolicy(policy)
+                }
                 onRefreshAgentSessions={() =>
                   void store.getState().refreshAgentSessions()
                 }
