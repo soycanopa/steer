@@ -2,7 +2,7 @@
 // Layout / Typography / Styles). Padding+margin anidados tipo Webflow.
 // Recibe datos y callbacks; no conoce stores ni adapters.
 
-import { useRef, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import {
   AlignCenter,
   AlignJustify,
@@ -14,7 +14,6 @@ import {
   ChevronRight,
   Italic,
   LayoutGrid,
-  Pin,
   Plus,
   RotateCcw,
   Square,
@@ -47,48 +46,29 @@ export type TweakView = {
   to: string;
 };
 
-export type PinView = {
-  id: string;
-  pin: number;
-  body: string;
-};
-
 export type InspectorPanelProps = {
   selection: Selection | null;
   scope: Scope;
   tweaks: TweakView[];
-  pins: PinView[];
   onSetScope(scope: Scope): void;
   onSetTweak(prop: TweakProp, to: string): void;
   onResetTweak(prop: TweakProp): void;
   onResetAll(): void;
-  onAddPin(body: string): void;
-  onRemovePin(id: string): void;
+  onClose?(): void;
 };
 
 export function InspectorPanel({
   selection,
   scope,
   tweaks,
-  pins,
   onSetScope,
   onSetTweak,
   onResetTweak,
   onResetAll,
-  onAddPin,
-  onRemovePin,
+  onClose,
 }: InspectorPanelProps) {
   if (selection === null) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center">
-        <p className="text-[length:var(--fs-2)] text-[var(--text-1)]">
-          Pulsa <Key>I</Key> y haz click
-        </p>
-        <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">
-          Un nodo del preview llena este panel.
-        </p>
-      </div>
-    );
+    return null;
   }
 
   const kind = inspectKind(selection);
@@ -98,8 +78,9 @@ export function InspectorPanel({
   const set = onSetTweak;
 
   return (
-    <div className="flex h-full flex-col gap-4 px-3 py-3">
-      <header className="flex flex-col gap-1.5">
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto bg-[var(--bg-1)] px-3 py-3">
+      <header className="flex items-start gap-2">
+        <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <p className="flex min-w-0 items-center text-[13px] text-[var(--text-1)]">
           {(selection.breadcrumb.length ? selection.breadcrumb : [selection.tag]).map(
             (part, i) => (
@@ -135,6 +116,17 @@ export function InspectorPanel({
             ]}
           />
         </div>
+        </div>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            title="Cerrar inspector"
+            className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-2)] transition-colors duration-120 hover:bg-[var(--bg-2)] hover:text-[var(--text-0)]"
+          >
+            <X size={14} strokeWidth={1.75} aria-hidden />
+          </button>
+        ) : null}
       </header>
 
       <Block title="Tamaño">
@@ -417,10 +409,6 @@ export function InspectorPanel({
             />
           ) : null}
         </AddRow>
-      </Block>
-
-      <Block title="Pins">
-        <PinSection pins={pins} onAdd={onAddPin} onRemove={onRemovePin} />
       </Block>
 
       {tweaks.length > 0 ? (
@@ -753,14 +741,6 @@ function Segmented<T extends string>({
   );
 }
 
-function Key({ children }: { children: ReactNode }) {
-  return (
-    <kbd className="rounded-[6px] bg-[var(--bg-2)] px-1.5 py-0.5 font-mono text-[11px] text-[var(--text-0)]">
-      {children}
-    </kbd>
-  );
-}
-
 function SpacingVisual({
   selection,
   marginTweak,
@@ -877,67 +857,5 @@ function SideNum({
       }}
       className={`h-[18px] w-7 rounded-[3px] bg-transparent text-center font-mono text-[11px] text-[var(--text-1)] outline-none hover:text-[var(--text-0)] focus:bg-[var(--accent)] focus:text-white ${className}`}
     />
-  );
-}
-
-function PinSection({
-  pins,
-  onAdd,
-  onRemove,
-}: {
-  pins: PinView[];
-  onAdd(body: string): void;
-  onRemove(id: string): void;
-}) {
-  const [text, setText] = useState("");
-  const ref = useRef<HTMLTextAreaElement>(null);
-  function submit() {
-    const trimmed = text.trim();
-    if (trimmed === "") return;
-    onAdd(trimmed);
-    setText("");
-    requestAnimationFrame(() => ref.current?.focus());
-  }
-  return (
-    <div className="flex flex-col gap-2">
-      {pins.length > 0 ? (
-        <ul className="flex flex-col gap-1">
-          {pins.map((p) => (
-            <li
-              key={p.id}
-              className="flex items-start gap-2 rounded-[8px] bg-[var(--bg-2)] px-2 py-1"
-            >
-              <span className="mt-0.5 flex items-center gap-1 font-mono text-[11px] text-[var(--pin)]">
-                <Pin size={11} strokeWidth={1.75} />#{p.pin}
-              </span>
-              <span className="min-w-0 flex-1 text-[12px] text-[var(--text-1)]">{p.body}</span>
-              <button
-                type="button"
-                onClick={() => onRemove(p.id)}
-                title="Borrar pin"
-                className="text-[var(--text-2)] hover:text-[var(--danger)]"
-              >
-                <X size={12} strokeWidth={1.75} />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      <textarea
-        ref={ref}
-        id="steer-pin-input"
-        rows={2}
-        value={text}
-        placeholder="Comentario anclado… (Enter envía)"
-        onChange={(e) => setText(e.target.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.shiftKey) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        className="resize-none rounded-[8px] bg-[var(--bg-2)] px-2 py-1.5 text-[12px] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)]"
-      />
-    </div>
   );
 }
