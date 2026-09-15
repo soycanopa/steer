@@ -372,11 +372,14 @@ export function createOpencodeAgent(
       sessionId: SessionId,
       permissionId: string,
       accept: boolean,
+      remember?: boolean,
     ): Promise<void> {
       await httpPost(
         baseUrl,
         `/session/${encodeURIComponent(sessionId)}/permissions/${encodeURIComponent(permissionId)}`,
-        { response: accept ? "once" : "reject" },
+        {
+          response: accept ? (remember === true ? "always" : "once") : "reject",
+        },
       );
     },
 
