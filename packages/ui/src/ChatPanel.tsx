@@ -2,6 +2,8 @@
 // stream del agente (Fase F) y composer. Sin imports de adapters.
 
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
   Bot,
   ChevronDown,
@@ -12,10 +14,17 @@ import {
   Pin,
   Plus,
   SendHorizontal,
+  SlidersHorizontal,
   Square,
   X,
 } from "lucide-react";
-import type { ApplyPayload, Intent } from "@steer/domain";
+import type { ApplyPayload, Intent, TweakProp } from "@steer/domain";
+import {
+  ModelSelector,
+  type AgentAdapterView,
+  type ProviderGroupView,
+  type ReasoningEffortUi,
+} from "./ModelSelector";
 
 export type PermissionPolicyUi = "default" | "always";
 
@@ -36,6 +45,7 @@ export type AgentSessionItemView = {
 };
 
 export type TranscriptToolView = {
+  id?: string;
   name: string;
   status: "start" | "end";
   detail?: string;
@@ -49,15 +59,10 @@ export type TranscriptBlockView =
       kind: "agent";
       id: string;
       text: string;
+      reasoning: string;
       tools: TranscriptToolView[];
       status: "streaming" | "done" | "error";
     };
-
-export type ModelOptionView = {
-  key: string;
-  label: string;
-  reasoning: boolean;
-};
 
 export type SessionView = {
   id: string;
@@ -71,6 +76,14 @@ export type PendingCommentView = {
   id: string;
   pin: number;
   body: string;
+};
+
+export type PendingEditView = {
+  id: string;
+  prop: TweakProp;
+  from: string;
+  to: string;
+  label: string;
 };
 
 export type ChatAttachmentView = {
@@ -89,8 +102,12 @@ export type ChatPanelProps = {
   attachments: ChatAttachmentView[];
   draftNote: string;
   pendingComments: PendingCommentView[];
-  models: ModelOptionView[];
+  pendingEdits: PendingEditView[];
+  agentTabs: AgentAdapterView[];
+  providerGroups: ProviderGroupView[];
   selectedModelKey: string | null;
+  reasoningEffort: ReasoningEffortUi;
+  showModelReasoning: boolean;
   permissionPolicy: PermissionPolicyUi;
   agentBusy: boolean;
   agentOnline: boolean;
@@ -102,12 +119,15 @@ export type ChatPanelProps = {
   onNewSession(): void;
   onSelectSession(id: string): void;
   onSelectModel(key: string): void;
+  onSetReasoningEffort(effort: ReasoningEffortUi): void;
   onSetPermissionPolicy(policy: PermissionPolicyUi): void;
   onRefreshAgentSessions(): void;
   onBindAgentSession(id: string): void;
   onAbort(): void;
   onRemoveComment(id: string): void;
   onFocusComment(id: string): void;
+  onRemoveEdit(id: string): void;
+  onFocusEdit(id: string): void;
   onRemoveAttachment(id: string): void;
 };
 
@@ -119,8 +139,12 @@ export function ChatPanel({
   attachments,
   draftNote,
   pendingComments,
-  models,
+  pendingEdits,
+  agentTabs,
+  providerGroups,
   selectedModelKey,
+  reasoningEffort,
+  showModelReasoning,
   permissionPolicy,
   agentBusy,
   agentOnline,
@@ -131,12 +155,15 @@ export function ChatPanel({
   onNewSession,
   onSelectSession,
   onSelectModel,
+  onSetReasoningEffort,
   onSetPermissionPolicy,
   onRefreshAgentSessions,
   onBindAgentSession,
   onAbort,
   onRemoveComment,
   onFocusComment,
+  onRemoveEdit,
+  onFocusEdit,
   onRemoveAttachment,
 }: ChatPanelProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -240,6 +267,7 @@ export function ChatPanel({
                   <AgentBlock
                     key={block.id}
                     text={block.text}
+                    reasoning={block.reasoning ?? ""}
                     tools={block.tools}
                     status={block.status}
                   />
@@ -253,17 +281,11 @@ export function ChatPanel({
 
       {/* Sin border-t: la columna chat no lleva línea superior sobre el composer. */}
       <div className="relative shrink-0 px-3 pt-2 pb-3">
-        {agentBusy ? (
-          <button
-            type="button"
-            onClick={onAbort}
-            className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-m)] bg-[var(--bg-2)] px-3 py-1.5 text-[length:var(--fs-1)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
-          >
-            <Square size={11} strokeWidth={2} className="fill-current" />
-            Detener turno
-          </button>
-        ) : null}
-
+        <PendingEdits
+          edits={pendingEdits}
+          onFocus={onFocusEdit}
+          onRemove={onRemoveEdit}
+        />
         <PendingComments
           comments={pendingComments}
           onFocus={onFocusComment}
@@ -274,28 +296,167 @@ export function ChatPanel({
           value={draftNote}
           onChange={onDraftNote}
           onSubmit={onApply}
+          onAbort={onAbort}
+          agentBusy={agentBusy}
           canSend={
             (queueCount > 0 || attachments.length > 0 || draftNote.trim() !== "") &&
-            !agentBusy &&
             agentOnline
           }
           sendHint={
-            pendingComments.length > 0
-              ? `Enviar ${pendingComments.length} comentario${pendingComments.length === 1 ? "" : "s"} al agente (⌘Enter)`
-              : attachments.length > 0
-                ? "Enviar captura al agente (⌘Enter)"
-                : "Enviar al agente (⌘Enter)"
+            agentBusy
+              ? "Detener respuesta del agente"
+              : pendingEdits.length > 0 && pendingComments.length > 0
+                ? `Enviar ${pendingEdits.length} edición${pendingEdits.length === 1 ? "" : "es"} y ${pendingComments.length} comentario${pendingComments.length === 1 ? "" : "s"} (⌘Enter)`
+                : pendingEdits.length > 0
+                  ? `Enviar ${pendingEdits.length} edición${pendingEdits.length === 1 ? "" : "es"} al agente (⌘Enter)`
+                  : pendingComments.length > 0
+                    ? `Enviar ${pendingComments.length} comentario${pendingComments.length === 1 ? "" : "s"} al agente (⌘Enter)`
+                    : attachments.length > 0
+                      ? "Enviar captura al agente (⌘Enter)"
+                      : "Enviar al agente (⌘Enter)"
           }
           attachments={attachments}
           onRemoveAttachment={onRemoveAttachment}
-          models={models}
+          agentTabs={agentTabs}
+          providerGroups={providerGroups}
           selectedModelKey={selectedModelKey}
+          reasoningEffort={reasoningEffort}
+          showModelReasoning={showModelReasoning}
           onSelectModel={onSelectModel}
+          onSetReasoningEffort={onSetReasoningEffort}
           permissionPolicy={permissionPolicy}
           onSetPermissionPolicy={onSetPermissionPolicy}
           agentOnline={agentOnline}
         />
       </div>
+    </div>
+  );
+}
+
+const TWEAK_PROP_LABELS: Partial<Record<TweakProp, string>> = {
+  fontSize: "Tamaño",
+  fontWeight: "Peso",
+  lineHeight: "Interlineado",
+  letterSpacing: "Tracking",
+  color: "Color",
+  backgroundColor: "Fondo",
+  textAlign: "Alineación",
+  width: "Ancho",
+  height: "Alto",
+  padding: "Padding",
+  margin: "Margen",
+  gap: "Gap",
+  flexDirection: "Dirección",
+  flexWrap: "Wrap",
+  justifyContent: "Justify",
+  alignItems: "Align",
+  maxWidth: "Max ancho",
+  objectFit: "Object fit",
+  fontStyle: "Estilo",
+  textDecoration: "Decoración",
+  borderRadius: "Radio",
+  opacity: "Opacidad",
+};
+
+export function tweakEditLabel(prop: TweakProp, to: string): string {
+  const name = TWEAK_PROP_LABELS[prop] ?? prop;
+  return `${name} · ${to}`;
+}
+
+/**
+ * Ediciones de diseño pendientes (tweaks).
+ * Mismo patrón que comentarios pero color accent (azul).
+ */
+function PendingEdits({
+  edits,
+  onFocus,
+  onRemove,
+}: {
+  edits: PendingEditView[];
+  onFocus(id: string): void;
+  onRemove(id: string): void;
+}) {
+  const [open, setOpen] = useState(false);
+
+  if (edits.length === 0) return null;
+
+  if (edits.length > 2) {
+    return (
+      <div className="relative mb-2">
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-dim)] px-2.5 py-1 text-[length:var(--fs-0)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--accent)]/20"
+        >
+          <SlidersHorizontal size={11} strokeWidth={1.75} className="text-[var(--accent)]" />
+          {edits.length} ediciones
+          <ChevronDown
+            size={11}
+            strokeWidth={1.75}
+            className={`text-[var(--text-2)] transition-transform duration-120 ${open ? "" : "-rotate-90"}`}
+          />
+        </button>
+        {open ? (
+          <div className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-full min-w-[220px] overflow-y-auto rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+            {edits.map((e) => (
+              <div
+                key={e.id}
+                className="group flex items-start gap-1.5 px-2.5 py-1.5 hover:bg-[var(--bg-2)]"
+              >
+                <button
+                  type="button"
+                  onClick={() => onFocus(e.id)}
+                  title={`${e.label} (${e.from} → ${e.to})`}
+                  className="min-w-0 flex-1 text-left"
+                >
+                  <span className="font-mono text-[var(--accent)]">{e.label}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onRemove(e.id)}
+                  title="Eliminar edición"
+                  className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
+                >
+                  <X size={10} strokeWidth={2} />
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mb-2 flex flex-wrap gap-1.5">
+      {edits.map((e) => (
+        <span
+          key={e.id}
+          className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-dim)] py-0.5 pr-1 pl-2 text-[length:var(--fs-0)] text-[var(--text-0)]"
+        >
+          <button
+            type="button"
+            onClick={() => onFocus(e.id)}
+            title={`${e.label} (${e.from} → ${e.to})`}
+            className="min-w-0 max-w-[180px] truncate text-left hover:text-[var(--accent)]"
+          >
+            <SlidersHorizontal
+              size={10}
+              strokeWidth={1.75}
+              className="mr-0.5 inline text-[var(--accent)]"
+            />
+            <span className="font-mono text-[var(--accent)]">{e.label}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onRemove(e.id)}
+            title="Quitar edición"
+            className="flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
+          >
+            <X size={10} strokeWidth={2} />
+          </button>
+        </span>
+      ))}
     </div>
   );
 }
@@ -590,65 +751,137 @@ function IntentRowShell({
   );
 }
 
-// Stream del agente (Fase F): texto + tool calls básicos.
-function AgentBlock({
-  text,
+function MarkdownBody({ text }: { text: string }) {
+  return (
+    <div className="steer-markdown text-[length:var(--fs-2)] text-[var(--text-1)] [&_a]:text-[var(--accent)] [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_blockquote]:text-[var(--text-2)] [&_code]:rounded-[var(--radius-s)] [&_code]:bg-[var(--bg-2)] [&_code]:px-1 [&_code]:font-mono [&_code]:text-[length:var(--fs-1)] [&_h1]:mb-2 [&_h1]:text-[length:var(--fs-4)] [&_h1]:font-semibold [&_h2]:mb-1.5 [&_h2]:text-[length:var(--fs-3)] [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:my-1.5 [&_ol]:list-decimal [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-[var(--radius-s)] [&_pre]:bg-[var(--bg-2)] [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_ul]:my-1.5 [&_ul]:list-disc">
+      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+    </div>
+  );
+}
+
+function ReasoningPanel({ text }: { text: string }) {
+  return (
+    <details
+      className="group rounded-[var(--radius-s)] border border-[var(--line)] bg-[var(--bg-1)]"
+    >
+      <summary className="cursor-pointer list-none px-2 py-1 font-mono text-[length:var(--fs-0)] text-[var(--text-2)] marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex items-center gap-1">
+          <ChevronDown
+            size={12}
+            className="transition group-open:rotate-180"
+            aria-hidden
+          />
+          Razonamiento
+        </span>
+      </summary>
+      <div className="border-t border-[var(--line)] px-2 py-1.5">
+        <MarkdownBody text={text} />
+      </div>
+    </details>
+  );
+}
+
+function ToolsSummaryPanel({
   tools,
+  runningCount,
+}: {
+  tools: TranscriptToolView[];
+  runningCount: number;
+}) {
+  return (
+    <details
+      className="group rounded-[var(--radius-s)] border border-[var(--line)] bg-[var(--bg-1)]"
+    >
+      <summary className="cursor-pointer list-none px-2 py-1 font-mono text-[length:var(--fs-0)] text-[var(--text-2)] marker:content-none [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex items-center gap-1">
+          <ChevronDown
+            size={12}
+            className="transition group-open:rotate-180"
+            aria-hidden
+          />
+          Herramientas ({tools.length})
+          {runningCount > 0 ? (
+            <span className="text-[var(--warn)]">· {runningCount} en curso</span>
+          ) : null}
+        </span>
+      </summary>
+      <ul className="space-y-0.5 border-t border-[var(--line)] px-2 py-1.5">
+        {tools.map((t, i) => (
+          <li
+            key={t.id ?? `${t.name}-${i}`}
+            className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
+          >
+            <span
+              className={
+                t.status === "start" ? "text-[var(--warn)]" : "text-[var(--ok)]"
+              }
+            >
+              {t.status === "start" ? "·" : "✓"}
+            </span>{" "}
+            <span className="text-[var(--text-1)]">{t.name}</span>
+            {t.detail ? (
+              <span className="block truncate pl-3 text-[var(--text-2)]">
+                {t.detail}
+              </span>
+            ) : null}
+          </li>
+        ))}
+      </ul>
+    </details>
+  );
+}
+
+/** Solo la respuesta final del agente va en globo (markdown). */
+function AgentTextBubble({
+  text,
   status,
 }: {
   text: string;
-  tools: TranscriptToolView[];
   status: "streaming" | "done" | "error";
 }) {
   const border =
     status === "error"
       ? "border-[var(--danger)]"
       : status === "done"
-        ? "border-[var(--ok)]/40"
-        : "border-[var(--accent)]/50";
+        ? "border-[var(--ok)]/35"
+        : "border-[var(--accent)]/45";
   return (
     <div
-      className={`rounded-[var(--radius-m)] border ${border} bg-[var(--bg-0)] px-3 py-2`}
+      className={`w-fit max-w-full rounded-[var(--radius-m)] border ${border} bg-[var(--bg-0)] px-3 py-2`}
     >
-      <div className="mb-1 flex items-center gap-2 font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-        <span
-          className={
-            status === "error"
-              ? "text-[var(--danger)]"
-              : status === "done"
-                ? "text-[var(--ok)]"
-                : "text-[var(--accent)]"
-          }
-        >
-          {status === "streaming"
-            ? "OpenCode…"
-            : status === "done"
-              ? "OpenCode"
-              : "OpenCode · error"}
-        </span>
-      </div>
+      <MarkdownBody text={text} />
+    </div>
+  );
+}
+
+// Turno del agente: reasoning/tools sueltos; respuesta en globo aparte.
+function AgentBlock({
+  text,
+  reasoning,
+  tools,
+  status,
+}: {
+  text: string;
+  reasoning: string;
+  tools: TranscriptToolView[];
+  status: "streaming" | "done" | "error";
+}) {
+  const streaming = status === "streaming";
+  const runningTools = tools.filter((t) => t.status === "start").length;
+  return (
+    <div className="flex flex-col gap-1.5">
+      {reasoning !== "" ? <ReasoningPanel text={reasoning} /> : null}
+
       {tools.length > 0 ? (
-        <ul className="mb-1.5 space-y-0.5">
-          {tools.map((t, i) => (
-            <li
-              key={`${t.name}-${i}`}
-              className="truncate font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
-            >
-              <span className={t.status === "start" ? "text-[var(--warn)]" : "text-[var(--text-2)]"}>
-                {t.status === "start" ? "·" : "✓"}
-              </span>{" "}
-              {t.name}
-              {t.detail ? ` — ${t.detail}` : ""}
-            </li>
-          ))}
-        </ul>
+        <ToolsSummaryPanel tools={tools} runningCount={runningTools} />
       ) : null}
+
       {text !== "" ? (
-        <p className="text-[length:var(--fs-2)] whitespace-pre-wrap text-[var(--text-1)]">
-          {text}
-        </p>
-      ) : status === "streaming" ? (
+        <AgentTextBubble text={text} status={status} />
+      ) : streaming ? (
         <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">escribiendo…</p>
+      ) : status === "error" ? (
+        <AgentTextBubble text="Error en el turno del agente." status={status} />
       ) : null}
     </div>
   );
@@ -660,13 +893,19 @@ function Composer({
   value,
   onChange,
   onSubmit,
+  onAbort,
+  agentBusy,
   canSend,
   sendHint,
   attachments,
   onRemoveAttachment,
-  models,
+  agentTabs,
+  providerGroups,
   selectedModelKey,
+  reasoningEffort,
+  showModelReasoning,
   onSelectModel,
+  onSetReasoningEffort,
   permissionPolicy,
   onSetPermissionPolicy,
   agentOnline,
@@ -674,19 +913,32 @@ function Composer({
   value: string;
   onChange(text: string): void;
   onSubmit(): void;
+  onAbort(): void;
+  agentBusy: boolean;
   canSend: boolean;
   sendHint?: string;
   attachments: ChatAttachmentView[];
   onRemoveAttachment(id: string): void;
-  models: ModelOptionView[];
+  agentTabs: AgentAdapterView[];
+  providerGroups: ProviderGroupView[];
   selectedModelKey: string | null;
+  reasoningEffort: ReasoningEffortUi;
+  showModelReasoning: boolean;
   onSelectModel(key: string): void;
+  onSetReasoningEffort(effort: ReasoningEffortUi): void;
   permissionPolicy: PermissionPolicyUi;
   onSetPermissionPolicy(policy: PermissionPolicyUi): void;
   agentOnline: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [modeOpen, setModeOpen] = useState(false);
+
+  useEffect(() => {
+    if (value === "") {
+      const el = ref.current;
+      if (el) el.style.height = "auto";
+    }
+  }, [value]);
 
   function autoGrow() {
     const el = ref.current;
@@ -697,7 +949,7 @@ function Composer({
   }
 
   return (
-    <div className="relative rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-2)] focus-within:border-[var(--accent)]">
+    <div className="relative rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] focus-within:border-[var(--accent)]">
       {attachments.length > 0 ? (
         <div className="flex gap-1.5 px-2 pt-2">
           {attachments.map((a) => (
@@ -734,7 +986,8 @@ function Composer({
         onKeyDown={(e) => {
           if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
             e.preventDefault();
-            if (canSend) onSubmit();
+            if (agentBusy) onAbort();
+            else if (canSend) onSubmit();
           }
         }}
         className="max-h-[140px] min-h-[96px] w-full resize-none rounded-t-[var(--radius-m)] bg-transparent px-3 pt-2.5 pb-10 text-[length:var(--fs-2)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)]"
@@ -742,30 +995,16 @@ function Composer({
 
       {/* Controles: modelo, luego candado de permisos, enviar. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 px-2 pb-2">
-        <select
-          aria-label="Modelo"
-          value={selectedModelKey ?? ""}
-          onChange={(e) => {
-            if (e.target.value !== "") onSelectModel(e.target.value);
-          }}
-          disabled={models.length === 0}
-          title={
-            models.length === 0
-              ? "OpenCode no responde — no hay modelos"
-              : "Modelo del agente"
-          }
-          className="pointer-events-auto h-6 min-w-0 max-w-[140px] flex-1 truncate rounded-[var(--radius-s)] bg-[var(--bg-3)] px-1.5 font-mono text-[length:var(--fs-0)] text-[var(--text-1)] outline-none disabled:opacity-40"
-        >
-          {models.length === 0 ? (
-            <option value="">{agentOnline ? "sin modelos" : "OpenCode off"}</option>
-          ) : (
-            models.map((m) => (
-              <option key={m.key} value={m.key}>
-                {m.label}
-              </option>
-            ))
-          )}
-        </select>
+        <ModelSelector
+          agents={agentTabs}
+          providerGroups={providerGroups}
+          selectedModelKey={selectedModelKey}
+          reasoningEffort={reasoningEffort}
+          showReasoning={showModelReasoning}
+          agentOnline={agentOnline}
+          onSelectModel={onSelectModel}
+          onSetReasoningEffort={onSetReasoningEffort}
+        />
 
         <div className="relative pointer-events-auto">
           <button
@@ -822,12 +1061,23 @@ function Composer({
 
         <button
           type="button"
-          onClick={() => canSend && onSubmit()}
-          disabled={!canSend}
+          onClick={() => {
+            if (agentBusy) onAbort();
+            else if (canSend) onSubmit();
+          }}
+          disabled={!agentBusy && !canSend}
           title={sendHint ?? "Enviar al agente (⌘Enter)"}
-          className="pointer-events-auto ml-auto flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--accent)] text-white transition-colors duration-120 hover:bg-[#6c99ff] disabled:opacity-40"
+          className={`pointer-events-auto ml-auto flex size-6 shrink-0 items-center justify-center rounded-full text-white transition-colors duration-120 disabled:opacity-40 ${
+            agentBusy
+              ? "bg-[var(--danger)] hover:bg-[#e85d5d]"
+              : "bg-[var(--accent)] hover:bg-[#6c99ff]"
+          }`}
         >
-          <SendHorizontal size={13} strokeWidth={1.75} />
+          {agentBusy ? (
+            <Square size={11} strokeWidth={2} className="fill-current" />
+          ) : (
+            <SendHorizontal size={13} strokeWidth={1.75} />
+          )}
         </button>
       </div>
     </div>
