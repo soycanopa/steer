@@ -13,20 +13,34 @@
   var TWEAK_PROPS = [
     "fontSize",
     "fontWeight",
+    "lineHeight",
+    "letterSpacing",
     "color",
     "backgroundColor",
     "textAlign",
+    "width",
+    "height",
     "padding",
     "margin",
     "gap",
+    "flexDirection",
+    "flexWrap",
+    "justifyContent",
+    "alignItems",
+    "maxWidth",
+    "objectFit",
+    "fontStyle",
+    "textDecoration",
     "borderRadius",
     "opacity",
   ];
 
   var SOURCE_ATTR = "data-tsd-source";
   var ACCENT = "#2b6bff"; // azul tipo Webflow, distinto del brand del proyecto (UX §9)
+  var COMMENT_LINE = "#ff4d4d"; // outline delgado del modo comentarios
 
   var inspect = false;
+  var commentMode = false;
   var selectedEl = null;
   var selectedId = null;
   var steerCounter = 0;
@@ -52,7 +66,8 @@
   // Estilo tipo herramienta de diseño (UX: "como Webflow"): crosshair
   // global mientras Inspect está ON.
   function setInspectCursor(on) {
-    if (on) {
+    // Crosshair solo en Inspección. Comentarios usan el pointer normal.
+    if (on && !commentMode) {
       if (!inspectStyle) {
         inspectStyle = document.createElement("style");
         inspectStyle.setAttribute("data-steer-cursor", "");
@@ -67,10 +82,26 @@
     }
   }
 
+  function styleOverlayForMode() {
+    if (!hoverBox || !selectBox) return;
+    if (commentMode) {
+      hoverBox.style.border = "1px solid " + COMMENT_LINE;
+      hoverBox.style.background = "transparent";
+      selectBox.style.border = "1px solid " + COMMENT_LINE;
+      selectBox.style.background = "transparent";
+    } else {
+      hoverBox.style.border = "2px solid " + ACCENT;
+      hoverBox.style.background = "rgba(43,107,255,0.08)";
+      selectBox.style.border = "2px solid " + ACCENT;
+      selectBox.style.background = "transparent";
+    }
+  }
+
   function ensureOverlayNodes() {
     if (hoverBox) return;
     function box(z) {
       var d = document.createElement("div");
+      d.setAttribute("data-steer-overlay", "");
       d.style.cssText =
         "position:absolute;pointer-events:none;z-index:" + z +
         ";margin:0;padding:0;";
@@ -83,18 +114,17 @@
     marginBox = box(2147483642);
     marginBox.style.background = "rgba(255,170,60,0.32)";
     hoverBox = box(2147483646);
-    hoverBox.style.border = "2px solid " + ACCENT;
-    hoverBox.style.background = "rgba(43,107,255,0.08)";
     hoverBox.style.display = "none";
     selectBox = box(2147483644);
-    selectBox.style.border = "2px solid " + ACCENT;
     selectBox.style.display = "none";
+    styleOverlayForMode();
     hoverLabel = makeLabel(2147483647);
     selectLabel = makeLabel(2147483645);
   }
 
   function makeLabel(z) {
     var d = document.createElement("div");
+    d.setAttribute("data-steer-overlay", "");
     d.style.cssText =
       "position:absolute;pointer-events:none;z-index:" + z + ";display:none;" +
       "font:600 11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;" +
@@ -189,7 +219,9 @@
     if (paddingBox) paddingBox.style.display = "none";
   }
 
-  // "src/components/Hero.tsx:42:6" → {file, line, col}; faltante → file ""
+  // "src/components/Hero.tsx:42:6" → {file, line, col}.
+  // Faltante → {file:"", line:0, col:0} (TRD §6.1): NO inventar paths.
+  // El parent bloquea Apply cuando file === "" (AGENTS regla 6).
   function parseSource(el) {
     var host = el && el.closest ? el.closest("[" + SOURCE_ATTR + "]") : null;
     if (!host) return { file: "", line: 0, col: 0 };
@@ -216,6 +248,9 @@
         props[key] = computed.getPropertyValue(p + "-" + side);
       });
     });
+    props.display = computed.display;
+    var ff = computed.fontFamily || "";
+    props.fontFamily = ff.split(",")[0].replace(/['"]/g, "").trim();
     var loc = parseSource(el);
     var tag = (el.tagName || "").toLowerCase();
     var component = null;
@@ -241,26 +276,44 @@
     };
   }
 
+  function isSteerUi(el) {
+    if (!el || !el.closest) return false;
+    return !!(
+      el.closest("[data-steer-comment-popover]") ||
+      el.closest("[data-steer-overlay]") ||
+      el.closest("[data-steer-pin]") ||
+      el.closest("[data-steer-cursor]")
+    );
+  }
+
   function onMove(e) {
     if (!inspect) return;
+    if (isSteerUi(e.target)) return;
     var now = Date.now();
     if (now - lastMove < 32) return; // TRD §13: throttle 32ms
     lastMove = now;
     var el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el || el === hoverBox || el === hoverLabel || el === selectBox || el === selectLabel) return;
+    if (isSteerUi(el)) return;
     // Hover sobre el ya seleccionado: sin chip duplicado (el outline de
     // selección ya está); el espaciado se sigue mostrando.
     if (el === selectedEl) {
       if (hoverBox) hoverBox.style.display = "none";
       if (hoverLabel) hoverLabel.style.display = "none";
-      placeSpacing(el);
+      if (!commentMode) placeSpacing(el);
+      else hideSpacing();
       return;
     }
     ensureOverlayNodes();
     place(hoverBox, el);
-    placeLabel(hoverLabel, el);
-    hoverLabel.textContent = labelFor(el);
-    placeSpacing(el);
+    if (commentMode) {
+      if (hoverLabel) hoverLabel.style.display = "none";
+      hideSpacing();
+    } else {
+      placeLabel(hoverLabel, el);
+      hoverLabel.textContent = labelFor(el);
+      placeSpacing(el);
+    }
     send({ type: "steer:hover", selection: buildSelection(el) });
   }
 
@@ -273,10 +326,13 @@
 
   function onClick(e) {
     if (!inspect) return;
+    // No secuestrar clicks del popover de comentario ni de los pins.
+    if (isSteerUi(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
     var el = document.elementFromPoint(e.clientX, e.clientY);
     if (!el || el === hoverBox || el === hoverLabel || el === selectBox || el === selectLabel) return;
+    if (isSteerUi(el)) return;
     selectElement(el);
   }
 
@@ -292,92 +348,330 @@
     }
     ensureOverlayNodes();
     place(selectBox, el);
-    placeLabel(selectLabel, el);
-    selectLabel.textContent = labelFor(el);
-    placeSpacing(el);
-    send({ type: "steer:select", id: selectedId, selection: buildSelection(el) });
-  }
-
-  // ---- Árbol de capas (Fase layers) — espejo liviano del DOM.
-  var treeIndex = {}; // node.id → elemento
-  var treeTimer = null;
-
-  function scheduleTree() {
-    clearTimeout(treeTimer);
-    treeTimer = setTimeout(pushTree, 500);
-  }
-
-  function pushTree() {
-    treeIndex = {};
-    var count = 0;
-    // Basura que no aporta al árbol: overlays propios, devtools
-    // inyectados (p. ej. tanstack-devtools-*) y wrappers vacíos.
-    function isJunk(el) {
-      var tag = el.tagName ? el.tagName.toLowerCase() : "";
-      if (
-        tag === "script" ||
-        tag === "style" ||
-        tag === "link" ||
-        tag === "meta" ||
-        tag === "head"
-      ) {
-        return true;
-      }
-      for (var i = 0; i < el.attributes.length; i++) {
-        if (el.attributes[i].name.indexOf("data-steer") === 0) return true;
-      }
-      if (tag.indexOf("devtools") !== -1 || tag.indexOf("tanstack-") === 0) {
-        return true;
-      }
-      if (
-        tag === "div" &&
-        el.children.length === 0 &&
-        !el.textContent.trim() &&
-        !el.getAttribute("data-tsd-source") &&
-        !el.id &&
-        !el.className
-      ) {
-        return true;
-      }
-      return false;
+    if (commentMode) {
+      if (selectLabel) selectLabel.style.display = "none";
+      hideSpacing();
+    } else {
+      placeLabel(selectLabel, el);
+      selectLabel.textContent = labelFor(el);
+      placeSpacing(el);
     }
-    function walk(el, depth) {
-      if (!el || depth > 10 || count > 400) return null;
-      if (isJunk(el)) return null;
-      count += 1;
-      var id = "n" + count;
-      treeIndex[id] = el;
-      var text = null;
-      for (var t = 0; t < el.childNodes.length; t++) {
-        var ch = el.childNodes[t];
-        if (ch.nodeType === 3 && ch.nodeValue && ch.nodeValue.trim() !== "") {
-          text = ch.nodeValue.trim().slice(0, 40);
+    send({ type: "steer:select", id: selectedId, selection: buildSelection(el) });
+    // Modo Comentarios: al elegir nodo, popover de pin en el sitio.
+    if (commentMode) {
+      var existingId = null;
+      for (var pid in pins) {
+        if (!Object.prototype.hasOwnProperty.call(pins, pid)) continue;
+        if (pins[pid].steerId === selectedId) {
+          existingId = pid;
           break;
         }
       }
-      var loc = parseSource(el);
-      var node = {
-        id: id,
-        tag: tag,
-        cls:
-          el.classList && el.classList.length > 0 ? el.classList[0] : null,
-        text: text,
-        source: loc.file ? loc.file + ":" + loc.line + ":" + loc.col : null,
-        children: [],
-      };
-      for (var c = 0; c < el.children.length; c++) {
-        var child = walk(el.children[c], depth + 1);
-        if (child) node.children.push(child);
-      }
-      return node;
+      showCommentPopover(
+        el,
+        existingId ? pins[existingId].body || "" : "",
+        existingId,
+        selectedId,
+      );
     }
-    var root = document.body ? walk(document.body, 0) : null;
-    send({ type: "steer:tree", nodes: root ? [root] : [] });
+  }
+
+  // ---- Árbol de capas (Fase layers) — espejo liviano del DOM.
+  // Ids estables por elemento: no se regeneran en cada push (si no,
+  // el click del panel falla tras cualquier mutación/HMR).
+  var treeIndex = {}; // node.id → elemento
+  var idByEl = typeof WeakMap !== "undefined" ? new WeakMap() : null;
+  var idSeq = 0;
+  var treeTimer = null;
+
+  function nodeId(el) {
+    if (idByEl) {
+      var existing = idByEl.get(el);
+      if (existing) return existing;
+    }
+    idSeq += 1;
+    var id = "n" + idSeq;
+    if (idByEl) idByEl.set(el, id);
+    return id;
+  }
+
+  function scheduleTree() {
+    clearTimeout(treeTimer);
+    treeTimer = setTimeout(pushTree, 200);
+  }
+
+  function isTreeJunk(el) {
+    var tag = el.tagName ? el.tagName.toLowerCase() : "";
+    if (
+      tag === "script" ||
+      tag === "style" ||
+      tag === "link" ||
+      tag === "meta" ||
+      tag === "head" ||
+      tag === "noscript" ||
+      tag === "template"
+    ) {
+      return true;
+    }
+    // Overlays propios (no el nodo seleccionado del usuario).
+    if (
+      el.hasAttribute("data-steer-overlay") ||
+      el.hasAttribute("data-steer-hover") ||
+      el.hasAttribute("data-steer-pin") ||
+      el.hasAttribute("data-steer-cursor") ||
+      el.hasAttribute("data-steer-spacing")
+    ) {
+      return true;
+    }
+    // Devtools / runtime SSR / HMR: portals y barreras de stream.
+    var id = el.id || "";
+    var cls = typeof el.className === "string" ? el.className : "";
+    var stamp = (id + " " + cls).toLowerCase();
+    if (
+      stamp.indexOf("devtools") !== -1 ||
+      stamp.indexOf("tanstack") !== -1 ||
+      stamp.indexOf("$tsr") !== -1 ||
+      stamp.indexOf("tsr-stream") !== -1 ||
+      stamp.indexOf("steer") !== -1 ||
+      tag.indexOf("devtools") !== -1 ||
+      tag.indexOf("tanstack-") === 0
+    ) {
+      return true;
+    }
+    if (el.hasAttribute("data-tanstack-router-dev-styles")) return true;
+    // Vacíos de stream SSR (p.ej. <div style="position:absolute">).
+    if (
+      tag === "div" &&
+      el.children.length === 0 &&
+      !(el.textContent || "").trim() &&
+      !el.getAttribute("data-tsd-source") &&
+      !id &&
+      !cls
+    ) {
+      return true;
+    }
+    return false;
+  }
+
+  /** Subárbol “del producto”: hay data-tsd-source en el nodo o debajo. */
+  function hasSourceInTree(el) {
+    if (el.getAttribute && el.getAttribute("data-tsd-source")) return true;
+    try {
+      return !!(el.querySelector && el.querySelector("[data-tsd-source]"));
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function pushTree() {
+    try {
+      treeIndex = {};
+      var count = 0;
+      function walk(el, depth) {
+        if (!el || depth > 12 || count > 400) return null;
+        if (isTreeJunk(el)) return null;
+        // body/html siempre se muestran; el resto solo si aporta source
+        // (evita basura de overlays/portal a un lado del app root).
+        var isRootShell =
+          el === document.body || el === document.documentElement;
+        if (!isRootShell && !hasSourceInTree(el)) return null;
+        count += 1;
+        var tag = el.tagName ? el.tagName.toLowerCase() : "div";
+        var id = nodeId(el);
+        treeIndex[id] = el;
+        var text = null;
+        for (var t = 0; t < el.childNodes.length; t++) {
+          var ch = el.childNodes[t];
+          if (ch.nodeType === 3 && ch.nodeValue && ch.nodeValue.trim() !== "") {
+            text = ch.nodeValue.trim().slice(0, 40);
+            break;
+          }
+        }
+        var loc = parseSource(el);
+        var node = {
+          id: id,
+          tag: tag,
+          cls:
+            el.classList && el.classList.length > 0 ? el.classList[0] : null,
+          text: text,
+          source: loc.file ? loc.file + ":" + loc.line + ":" + loc.col : null,
+          children: [],
+        };
+        for (var c = 0; c < el.children.length; c++) {
+          var child = walk(el.children[c], depth + 1);
+          if (child) node.children.push(child);
+        }
+        return node;
+      }
+      var root = document.body ? walk(document.body, 0) : null;
+      send({ type: "steer:tree", nodes: root ? [root] : [] });
+    } catch (err) {
+      // Nunca romper el preview por el árbol; el debug del parent lo ve.
+      if (typeof console !== "undefined" && console.warn) {
+        console.warn("steer:tree failed", err);
+      }
+      send({ type: "steer:tree", nodes: [] });
+    }
   }
 
   function selectNode(id) {
     var el = treeIndex[id];
-    if (el) selectElement(el);
+    if (el && el.isConnected) selectElement(el);
+  }
+
+  // Cámara: pinta el viewport a canvas (colores, radios, imágenes, texto).
+  // foreignObject+cloneNode no sirve: en WKWebView/Tauri el CSS de Tailwind
+  // no entra al SVG y la captura sale como texto pelado.
+  function captureTransparent(color) {
+    return !color || color === "transparent" || color === "rgba(0, 0, 0, 0)";
+  }
+
+  function captureZ(el) {
+    var z = 0;
+    var depth = 0;
+    var n = el;
+    while (n && n.nodeType === 1) {
+      depth += 1;
+      var zi = window.getComputedStyle(n).zIndex;
+      if (zi !== "auto") z += (parseInt(zi, 10) || 0) * 10000;
+      n = n.parentElement;
+    }
+    return z + depth;
+  }
+
+  function capturePreview() {
+    try {
+      var w = Math.max(1, Math.round(window.innerWidth || 800));
+      var h = Math.max(1, Math.round(window.innerHeight || 600));
+      var maxEdge = 1600;
+      var scale = Math.max(w, h) > maxEdge ? maxEdge / Math.max(w, h) : 1;
+      scale *= Math.min(2, window.devicePixelRatio || 1);
+      var canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(w * scale));
+      canvas.height = Math.max(1, Math.round(h * scale));
+      var ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("sin canvas 2d");
+      ctx.scale(scale, scale);
+
+      var rootBg = window.getComputedStyle(document.body).backgroundColor;
+      ctx.fillStyle = captureTransparent(rootBg) ? "#ffffff" : rootBg;
+      ctx.fillRect(0, 0, w, h);
+
+      var raw = document.body.getElementsByTagName("*");
+      var list = [document.documentElement, document.body];
+      for (var i = 0; i < raw.length; i++) list.push(raw[i]);
+      list.sort(function (a, b) {
+        return captureZ(a) - captureZ(b);
+      });
+
+      for (var e = 0; e < list.length; e++) {
+        var el = list[e];
+        if (isSteerUi(el)) continue;
+        var cs = window.getComputedStyle(el);
+        if (cs.display === "none" || cs.visibility === "hidden") continue;
+        var op = parseFloat(cs.opacity);
+        if (op === 0) continue;
+        var r = el.getBoundingClientRect();
+        if (r.width < 0.5 || r.height < 0.5) continue;
+        if (r.bottom < 0 || r.right < 0 || r.top > h || r.left > w) continue;
+
+        ctx.save();
+        ctx.globalAlpha = isNaN(op) ? 1 : op;
+        var rad = parseFloat(cs.borderTopLeftRadius) || 0;
+        ctx.beginPath();
+        if (rad > 0 && ctx.roundRect) {
+          ctx.roundRect(r.left, r.top, r.width, r.height, rad);
+        } else {
+          ctx.rect(r.left, r.top, r.width, r.height);
+        }
+        var bg = cs.backgroundColor;
+        if (!captureTransparent(bg)) {
+          ctx.fillStyle = bg;
+          ctx.fill();
+        }
+        var bw = parseFloat(cs.borderTopWidth) || 0;
+        if (bw > 0 && !captureTransparent(cs.borderTopColor)) {
+          ctx.strokeStyle = cs.borderTopColor;
+          ctx.lineWidth = bw;
+          ctx.stroke();
+        }
+        ctx.restore();
+
+        var tag = el.tagName.toLowerCase();
+        if (tag === "img" && el.naturalWidth) {
+          try {
+            ctx.drawImage(el, r.left, r.top, r.width, r.height);
+          } catch (_) {
+            /* imagen CORS */
+          }
+        }
+        if (tag === "canvas") {
+          try {
+            ctx.drawImage(el, r.left, r.top, r.width, r.height);
+          } catch (_) {}
+        }
+      }
+
+      var walker = document.createTreeWalker(
+        document.body,
+        NodeFilter.SHOW_TEXT,
+        null,
+      );
+      var node;
+      while ((node = walker.nextNode())) {
+        var parent = node.parentElement;
+        if (!parent || isSteerUi(parent)) continue;
+        var text = node.nodeValue;
+        if (!text || !text.replace(/\s/g, "")) continue;
+        var pcs = window.getComputedStyle(parent);
+        if (pcs.display === "none" || pcs.visibility === "hidden") continue;
+        var pop = parseFloat(pcs.opacity);
+        if (pop === 0) continue;
+        var range = document.createRange();
+        range.selectNodeContents(node);
+        var rects = range.getClientRects();
+        if (!rects.length) continue;
+        ctx.save();
+        ctx.globalAlpha = isNaN(pop) ? 1 : pop;
+        ctx.fillStyle = pcs.color;
+        ctx.font = pcs.font;
+        ctx.textBaseline = "alphabetic";
+        var fontSize = parseFloat(pcs.fontSize) || 16;
+        var remaining = text.replace(/\s+/g, " ");
+        for (var ri = 0; ri < rects.length; ri++) {
+          var box = rects[ri];
+          if (box.bottom < 0 || box.top > h || box.right < 0 || box.left > w) {
+            continue;
+          }
+          var slice = remaining;
+          if (ctx.measureText(slice).width > box.width + 2) {
+            while (slice.length > 1 && ctx.measureText(slice).width > box.width + 2) {
+              slice = slice.slice(0, -1);
+            }
+            var sp = slice.lastIndexOf(" ");
+            if (sp > 4) slice = slice.slice(0, sp);
+          }
+          remaining = remaining.slice(slice.length).replace(/^\s+/, "");
+          ctx.fillText(
+            slice.replace(/^\s+|\s+$/g, ""),
+            box.left,
+            box.top + fontSize * 0.8,
+          );
+        }
+        ctx.restore();
+      }
+
+      send({
+        type: "steer:captured",
+        mime: "image/png",
+        dataUrl: canvas.toDataURL("image/png"),
+      });
+    } catch (err) {
+      send({
+        type: "steer:capture-error",
+        message: err && err.message ? err.message : String(err),
+      });
+    }
   }
 
   function setInspect(on) {
@@ -385,10 +679,16 @@
     setInspectCursor(on);
     if (on) {
       ensureOverlayNodes();
+      styleOverlayForMode();
       if (selectedEl) {
         place(selectBox, selectedEl);
-        placeLabel(selectLabel, selectedEl);
-        selectLabel.textContent = labelFor(selectedEl);
+        if (commentMode) {
+          if (selectLabel) selectLabel.style.display = "none";
+          hideSpacing();
+        } else {
+          placeLabel(selectLabel, selectedEl);
+          selectLabel.textContent = labelFor(selectedEl);
+        }
       }
       document.addEventListener("mousemove", onMove, true);
       document.addEventListener("mouseleave", onLeave, true);
@@ -410,6 +710,8 @@
 
   function stopEvent(e) {
     if (!inspect) return;
+    // Dejar trabajar el popover de comentarios y los badges de pin.
+    if (isSteerUi(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
   }
@@ -433,9 +735,14 @@
     if (!selectedEl) return;
     ensureOverlayNodes();
     place(selectBox, selectedEl);
-    placeLabel(selectLabel, selectedEl);
-    selectLabel.textContent = labelFor(selectedEl);
-    placeSpacing(selectedEl);
+    if (commentMode) {
+      if (selectLabel) selectLabel.style.display = "none";
+      hideSpacing();
+    } else {
+      placeLabel(selectLabel, selectedEl);
+      selectLabel.textContent = labelFor(selectedEl);
+      placeSpacing(selectedEl);
+    }
   }
 
   function setOverrides(overrides) {
@@ -522,11 +829,16 @@
     if (selectBox && selectedEl) place(selectBox, selectedEl);
   }
 
-  // ---- Pins (Fase E) — círculo 18px, número blanco, esquina sup-der
-  // (UI.md §4). Solo visual: el Intent vive en la cola del parent.
-  var pins = {}; // intentId → { steerId, badge }
+  // ---- Pins + popover de comentario (modo Comment) —
+  // Círculo numerado en el nodo; click = editar. El popover vive en el
+  // preview (mismo origin que el DOM del proyecto).
+  var pins = {}; // intentId → { steerId, badge, body, number }
   var PIN_SIZE = 18;
   var PIN_COLOR = "#ff8a4c";
+  var commentPopover = null;
+  var commentTextarea = null;
+  var commentSave = null;
+  var commentEditing = null; // { intentId, steerId }
 
   function positionPins() {
     for (var id in pins) {
@@ -545,19 +857,48 @@
     }
   }
 
-  function addPin(intentId, steerId, number) {
+  function addPin(intentId, steerId, number, body) {
     removePin(intentId);
-    var badge = document.createElement("div");
+    var target = document.querySelector('[data-steer-id="' + steerId + '"]');
+    if (!target && treeIndex && treeIndex[steerId]) {
+      target = treeIndex[steerId];
+      if (target && !target.getAttribute("data-steer-id")) {
+        target.setAttribute("data-steer-id", steerId);
+      }
+    }
+    var badge = document.createElement("button");
+    badge.type = "button";
     badge.setAttribute("data-steer-pin", intentId);
+    badge.setAttribute("aria-label", "Comentario #" + number);
     badge.textContent = String(number);
     badge.style.cssText =
       "position:absolute;z-index:2147483645;width:" + PIN_SIZE + "px;height:" +
-      PIN_SIZE + "px;align-items:center;justify-content:flex-start;" +
+      PIN_SIZE + "px;align-items:center;justify-content:center;" +
+      "border:0;padding:0;cursor:pointer;" +
       "border-radius:9999px;background:" + PIN_COLOR + ";color:#fff;" +
       "font:10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;" +
-      "display:flex;box-shadow:0 1px 4px #0e0f1166;pointer-events:none;";
+      "display:flex;box-shadow:0 1px 4px #0e0f1166;pointer-events:auto;";
+    badge.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      var clickTarget =
+        document.querySelector('[data-steer-id="' + steerId + '"]') ||
+        (treeIndex && treeIndex[steerId]);
+      if (clickTarget) selectElement(clickTarget);
+      showCommentPopover(
+        clickTarget || document.body,
+        typeof body === "string" ? body : "",
+        intentId,
+        steerId,
+      );
+    });
     document.body.appendChild(badge);
-    pins[intentId] = { steerId: steerId, badge: badge };
+    pins[intentId] = {
+      steerId: steerId,
+      badge: badge,
+      body: typeof body === "string" ? body : "",
+      number: number,
+    };
     positionPins();
   }
 
@@ -575,16 +916,156 @@
     }
   }
 
+  function ensureCommentPopover() {
+    if (commentPopover) return;
+    var pop = document.createElement("div");
+    pop.setAttribute("data-steer-overlay", "");
+    pop.setAttribute("data-steer-comment-popover", "");
+    pop.style.cssText =
+      "position:absolute;z-index:2147483647;width:240px;" +
+      "background:#16181c;color:#f2f3f5;border:1px solid #2c313a;" +
+      "border-radius:10px;padding:8px;box-shadow:0 8px 24px #0e0f1188;" +
+      "font:12.5px/1.4 system-ui,sans-serif;display:none;";
+    var ta = document.createElement("textarea");
+    ta.placeholder = "Comentario para el agente…";
+    ta.rows = 3;
+    ta.style.cssText =
+      "width:100%;box-sizing:border-box;resize:vertical;border:0;" +
+      "outline:none;background:#1e2127;color:#f2f3f5;border-radius:6px;" +
+      "padding:6px 8px;font:12.5px/1.4 system-ui,sans-serif;";
+    var row = document.createElement("div");
+    row.style.cssText = "display:flex;gap:6px;margin-top:6px;justify-content:flex-end;";
+    var cancel = document.createElement("button");
+    cancel.type = "button";
+    cancel.textContent = "Cancelar";
+    cancel.style.cssText =
+      "border:0;background:#272b33;color:#c4c8d0;border-radius:6px;" +
+      "padding:4px 10px;font:12px system-ui,sans-serif;cursor:pointer;";
+    var save = document.createElement("button");
+    save.type = "button";
+    save.textContent = "Guardar";
+    save.style.cssText =
+      "border:0;background:#5b8cff;color:#fff;border-radius:6px;" +
+      "padding:4px 10px;font:12px system-ui,sans-serif;cursor:pointer;";
+    row.appendChild(cancel);
+    row.appendChild(save);
+    pop.appendChild(ta);
+    pop.appendChild(row);
+    document.body.appendChild(pop);
+    commentPopover = pop;
+    commentTextarea = ta;
+    commentSave = save;
+    cancel.addEventListener("click", function () {
+      hideCommentPopover();
+    });
+    save.addEventListener("click", function () {
+      submitComment();
+    });
+    ta.addEventListener("keydown", function (e) {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        submitComment();
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        hideCommentPopover();
+      }
+    });
+  }
+
+  function hideCommentPopover() {
+    if (commentPopover) commentPopover.style.display = "none";
+    commentEditing = null;
+  }
+
+  function showCommentPopover(el, body, intentId, steerId) {
+    ensureCommentPopover();
+    var r = el.getBoundingClientRect();
+    commentEditing = {
+      intentId: intentId || null,
+      steerId: steerId || (el && el.getAttribute ? el.getAttribute("data-steer-id") : null),
+    };
+    commentTextarea.value = body || "";
+    commentPopover.style.display = "block";
+    var top = r.bottom + window.scrollY + 8;
+    var left = r.left + window.scrollX;
+    commentPopover.style.top = top + "px";
+    commentPopover.style.left = Math.max(8, Math.min(left, window.innerWidth - 256)) + "px";
+    setTimeout(function () {
+      commentTextarea.focus();
+    }, 0);
+  }
+
+  function submitComment() {
+    var body = (commentTextarea.value || "").trim();
+    if (body === "" || !commentEditing) {
+      // No cerrar: deja el popover abierto para escribir.
+      if (commentTextarea) commentTextarea.focus();
+      return;
+    }
+    var steerId =
+      commentEditing.steerId ||
+      (selectedEl && selectedEl.getAttribute
+        ? selectedEl.getAttribute("data-steer-id")
+        : null);
+    send({
+      type: "steer:comment-submit",
+      intentId: commentEditing.intentId || null,
+      body: body,
+      steerId: steerId || "",
+    });
+    hideCommentPopover();
+  }
+
+  function setPreviewMode(mode) {
+    commentMode = mode === "comment";
+    var inspectOn = mode !== "interact";
+    setInspect(inspectOn);
+    styleOverlayForMode();
+    if (commentMode) {
+      if (hoverLabel) hoverLabel.style.display = "none";
+      if (selectLabel) selectLabel.style.display = "none";
+      hideSpacing();
+    } else if (inspectOn && selectedEl) {
+      positionSelection();
+    }
+    if (!commentMode) hideCommentPopover();
+  }
+
+  function focusPin(intentId) {
+    var pin = pins[intentId];
+    if (!pin) return;
+    var el = document.querySelector('[data-steer-id="' + pin.steerId + '"]');
+    if (el) selectElement(el);
+    showCommentPopover(el || document.body, pin.body || "", intentId, pin.steerId);
+  }
+
   window.addEventListener("scroll", schedulePosition, true);
   window.addEventListener("resize", schedulePosition);
 
   // Cambios del DOM (HMR, re-renders, overrides) → reposicionar overlay
   // y refrescar el árbol de capas con debounce.
   if (typeof MutationObserver !== "undefined") {
-    new MutationObserver(function () {
+    new MutationObserver(function (records) {
+      var structural = false;
+      for (var i = 0; i < records.length; i++) {
+        var r = records[i];
+        if (r.type === "childList") {
+          structural = true;
+          break;
+        }
+        // Atributos: ignorar data-steer-* (overlays) para no buclear.
+        if (
+          r.type === "attributes" &&
+          r.attributeName &&
+          r.attributeName.indexOf("data-steer") !== 0
+        ) {
+          structural = true;
+          break;
+        }
+      }
       schedulePosition();
-      scheduleTree();
-    }).observe(document.body, {
+      if (structural) scheduleTree();
+    }).observe(document.documentElement, {
       childList: true,
       subtree: true,
       attributes: true,
@@ -638,6 +1119,11 @@
         break;
       case "steer:inspect-off":
         setInspect(false);
+        commentMode = false;
+        hideCommentPopover();
+        break;
+      case "steer:set-mode":
+        setPreviewMode(msg.mode);
         break;
       case "steer:set-overrides":
         setOverrides(msg.overrides);
@@ -649,10 +1135,13 @@
         highlight(msg.source);
         break;
       case "steer:add-pin":
-        addPin(msg.intentId, msg.steerId, msg.number);
+        addPin(msg.intentId, msg.steerId, msg.number, msg.body);
         break;
       case "steer:remove-pin":
         removePin(msg.intentId);
+        break;
+      case "steer:focus-pin":
+        focusPin(msg.intentId);
         break;
       case "steer:select-node":
         selectNode(msg.id);
@@ -660,11 +1149,17 @@
       case "steer:clear-pins":
         clearPins();
         break;
+      case "steer:capture":
+        capturePreview();
+        break;
       default:
         break;
     }
   });
 
   send({ type: "steer:ready" });
+  // Push inmediato (no solo debounce): el panel de capas no debe
+  // quedarse en "esperando el árbol" si no hay mutaciones.
+  pushTree();
   scheduleTree();
 })();
