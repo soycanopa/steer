@@ -283,7 +283,7 @@ Endpoints que **solo este adapter** conoce:
 | Eventos | `GET /event` o `GET /global/event` SSE |
 | Abort | `POST /session/:id/abort` (si hay id; el adapter siempre aborta el SSE local) |
 | Diff (P1) | `GET /session/:id/diff` |
-| Permiso (P0 auto-aceptar) | `POST /session/:id/permissions/:permissionID` body `{ response: "once" \| "always" \| "reject" }` |
+| Permiso (P0) | `POST /session/:id/permissions/:permissionID` body `{ response: "once" \| "always" \| "reject" }` (`always` si política Always approved) |
 
 Lista de modelos: siempre `GET /config/providers` mapeado a `ModelRef[]`. Nunca hardcodear. El chat solo ve `AgentPort.listModels()`.
 

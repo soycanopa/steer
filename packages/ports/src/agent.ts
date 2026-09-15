@@ -58,7 +58,12 @@ export type AgentPort = {
   startTurn(req: TurnRequest): AsyncIterable<AgentEvent>;
   /** `sessionId` null: corta el stream local; el abort HTTP es best-effort si hay id. */
   abort(sessionId: SessionId | null): Promise<void>;
-  respondPermission?(sessionId: SessionId, permissionId: string, accept: boolean): Promise<void>;
+  respondPermission?(
+    sessionId: SessionId,
+    permissionId: string,
+    accept: boolean,
+    remember?: boolean,
+  ): Promise<void>;
   /** Sesiones del provider para un directorio de proyecto (P0: OpenCode). */
   listSessions?(directory: string): Promise<AgentSessionSummary[]>;
 };

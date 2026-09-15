@@ -135,7 +135,12 @@ export type AgentPort = {
   ensureRuntime?(directory: string): Promise<void>; // spawn serve si aplica
   startTurn(req: TurnRequest): AsyncIterable<AgentEvent>;
   abort(sessionId: SessionId | null): Promise<void>;
-  respondPermission?(sessionId: SessionId, permissionId: string, accept: boolean): Promise<void>;
+  respondPermission?(
+    sessionId: SessionId,
+    permissionId: string,
+    accept: boolean,
+    remember?: boolean,
+  ): Promise<void>;
 };
 ```
 
