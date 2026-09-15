@@ -1,11 +1,13 @@
 // EmptyState — UI.md §7 / UX.md §5.1. Pantalla completa, no el layout de
-// tres zonas. Sin video, sin carousel. "Crear proyecto" llega en Fase G.
+// tres zonas. Sin video, sin carousel.
 
 export type EmptyStateProps = {
   recents: string[];
   opening: boolean;
+  creating?: boolean;
   error: string | null;
   onOpenProject(): void;
+  onCreateProject(): void;
   onOpenRecent(path: string): void;
   /** Arrastra la ventana (callback del composition root). */
   onStartDrag?(): void;
@@ -14,11 +16,14 @@ export type EmptyStateProps = {
 export function EmptyState({
   recents,
   opening,
+  creating = false,
   error,
   onOpenProject,
+  onCreateProject,
   onOpenRecent,
   onStartDrag,
 }: EmptyStateProps) {
+  const busy = opening || creating;
   return (
     <div
         data-tauri-drag-region=""
@@ -49,7 +54,7 @@ export function EmptyState({
         <div className="flex w-full flex-col gap-2">
           <button
             type="button"
-            disabled={opening}
+            disabled={busy}
             onClick={onOpenProject}
             className="rounded-[var(--radius-m)] bg-[var(--accent)] px-4 py-2 text-[length:var(--fs-2)] font-medium text-white transition-colors duration-120 hover:bg-[#6c99ff] disabled:opacity-40"
           >
@@ -57,11 +62,11 @@ export function EmptyState({
           </button>
           <button
             type="button"
-            disabled
-            title="Disponible en la Fase G"
-            className="rounded-[var(--radius-m)] bg-[var(--bg-2)] px-4 py-2 text-[length:var(--fs-2)] text-[var(--text-0)] opacity-40"
+            disabled={busy}
+            onClick={onCreateProject}
+            className="rounded-[var(--radius-m)] bg-[var(--bg-2)] px-4 py-2 text-[length:var(--fs-2)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--bg-3)] disabled:opacity-40"
           >
-            Crear proyecto TanStack Start
+            {creating ? "Creando…" : "Crear proyecto TanStack Start"}
           </button>
         </div>
 

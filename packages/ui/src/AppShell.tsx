@@ -45,12 +45,8 @@ export function AppShell({
           {projectTabs}
         </div>
         <div className="mb-1 flex shrink-0 items-center gap-2">
-          <StatusPill label="dev" value={devStatus} tone={devStatus} />
-          <StatusPill
-            label="opencode"
-            tone={agentStatus}
-            title={agentDetail}
-          />
+          <StatusPill label={previewStatusLabel(devStatus)} tone={devStatus} />
+          <StatusPill label="Agent" tone={agentStatus} title={agentDetail} />
         </div>
       </header>
       <main className="min-h-0 flex-1 bg-[var(--bg-1)] px-1.5 pb-1.5">{children}</main>
@@ -65,7 +61,13 @@ export function AppShell({
   );
 }
 
-// UI.md §3: pill estado dev (live verde / down rojo) · pill agente.
+function previewStatusLabel(status: "live" | "down" | "idle"): string {
+  if (status === "live") return "Live";
+  if (status === "down") return "Down";
+  return "Idle";
+}
+
+// UI.md §3: pill estado preview (live verde / down rojo) · pill agente.
 function StatusPill({
   label,
   value,

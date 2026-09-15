@@ -21,6 +21,10 @@ export type {
   TranscriptBlockView,
   TranscriptToolView,
 } from "./ChatPanel";
+export { QuestionCard } from "./QuestionCard";
+export type { QuestionCardProps } from "./QuestionCard";
+export { CreateProjectDialog } from "./CreateProjectDialog";
+export type { CreateProjectDialogProps } from "./CreateProjectDialog";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export { HomeView } from "./HomeView";
@@ -39,7 +43,7 @@ export type {
   PageRouteView,
 } from "./LayersPanel";
 export { ProjectTabStrip } from "./ProjectTabStrip";
-export type { ProjectTabStripProps } from "./ProjectTabStrip";
+export type { ProjectTab, ProjectTabStripProps } from "./ProjectTabStrip";
 export { PreviewFrame } from "./PreviewFrame";
 export type {
   PreviewFrameProps,

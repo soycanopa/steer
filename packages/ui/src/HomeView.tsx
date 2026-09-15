@@ -14,18 +14,23 @@ export type ProjectCardView = {
 export type HomeViewProps = {
   projects: ProjectCardView[];
   opening?: boolean;
+  creating?: boolean;
   error?: string | null;
   onOpenProject(): void;
+  onCreateProject(): void;
   onSelectProject(path: string): void;
 };
 
 export function HomeView({
   projects,
   opening = false,
+  creating = false,
   error = null,
   onOpenProject,
+  onCreateProject,
   onSelectProject,
 }: HomeViewProps) {
+  const busy = opening || creating;
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden rounded-[var(--radius-m)] bg-[var(--bg-0)] p-6">
       <div className="mx-auto flex w-full max-w-[960px] min-h-0 flex-1 flex-col gap-6">
@@ -38,15 +43,25 @@ export function HomeView({
               Abre un proyecto TanStack Start o vuelve a uno que ya tengas abierto.
             </p>
           </div>
-          <button
-            type="button"
-            disabled={opening}
-            onClick={onOpenProject}
-            className="flex shrink-0 items-center gap-1.5 rounded-[var(--radius-m)] bg-[var(--accent)] px-3 py-1.5 text-[length:var(--fs-1)] font-medium text-white transition-colors duration-120 hover:bg-[#6c99ff] disabled:opacity-40"
-          >
-            <Plus size={14} strokeWidth={2} aria-hidden />
-            {opening ? "Abriendo…" : "Abrir proyecto"}
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCreateProject}
+              className="rounded-[var(--radius-m)] bg-[var(--bg-2)] px-3 py-1.5 text-[length:var(--fs-1)] font-medium text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--bg-3)] disabled:opacity-40"
+            >
+              {creating ? "Creando…" : "Crear proyecto"}
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onOpenProject}
+              className="flex items-center gap-1.5 rounded-[var(--radius-m)] bg-[var(--accent)] px-3 py-1.5 text-[length:var(--fs-1)] font-medium text-white transition-colors duration-120 hover:bg-[#6c99ff] disabled:opacity-40"
+            >
+              <Plus size={14} strokeWidth={2} aria-hidden />
+              {opening ? "Abriendo…" : "Abrir proyecto"}
+            </button>
+          </div>
         </div>
 
         {error ? (

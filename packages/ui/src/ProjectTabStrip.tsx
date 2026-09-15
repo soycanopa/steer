@@ -1,23 +1,29 @@
 // ProjectTabStrip — tabs compactos alineados con la columna de preview.
 
-import { FolderOpen, Home, Plus } from "lucide-react";
+import { FolderOpen, Home, Plus, X } from "lucide-react";
+
+export type ProjectTab = {
+  path: string;
+  name: string;
+  active: boolean;
+};
 
 export type ProjectTabStripProps = {
-  projectName?: string | null;
+  tabs: ProjectTab[];
   homeActive?: boolean;
-  projectActive?: boolean;
   onGoHome(): void;
-  onSelectProject?(): void;
+  onSelectTab(path: string): void;
+  onCloseTab(path: string): void;
   onNewProject(): void;
   onStartDrag?(): void;
 };
 
 export function ProjectTabStrip({
-  projectName = null,
+  tabs,
   homeActive = false,
-  projectActive = false,
   onGoHome,
-  onSelectProject,
+  onSelectTab,
+  onCloseTab,
   onNewProject,
   onStartDrag,
 }: ProjectTabStripProps) {
@@ -36,28 +42,45 @@ export function ProjectTabStrip({
         >
           <Home size={12} strokeWidth={2} aria-hidden />
         </button>
-        {projectName != null && projectName !== "" ? (
-          <button
-            type="button"
-            onClick={onSelectProject}
-            title="Volver al proyecto"
-            className={`flex h-[26px] max-w-[168px] min-w-0 items-center gap-1.5 px-2.5 text-[length:var(--fs-1)] text-[var(--text-0)] transition-opacity duration-120 hover:opacity-90 ${
-              projectActive
-                ? "steer-project-tab"
-                : homeActive
-                  ? "mb-px rounded-[6px] bg-[var(--bg-0)]"
-                  : "mb-px rounded-t-[6px] bg-[var(--bg-2)]/70"
-            }`}
-          >
-            <FolderOpen
-              size={11}
-              strokeWidth={1.75}
-              className="shrink-0 text-[var(--text-2)]"
-              aria-hidden
-            />
-            <span className="truncate">{projectName}</span>
-          </button>
-        ) : null}
+        {tabs.map((tab) => {
+          const tabClass = tab.active
+            ? "steer-project-tab"
+            : homeActive
+              ? "mb-px rounded-[6px] bg-[var(--bg-0)]"
+              : "mb-px rounded-t-[6px] bg-[var(--bg-2)]/70";
+          return (
+            <div
+              key={tab.path}
+              className={`flex h-[26px] max-w-[200px] min-w-0 items-stretch text-[length:var(--fs-1)] text-[var(--text-0)] ${tabClass}`}
+            >
+              <button
+                type="button"
+                onClick={() => onSelectTab(tab.path)}
+                title="Volver al proyecto"
+                className="flex min-w-0 flex-1 items-center gap-1.5 pl-2.5 pr-1 transition-opacity duration-120 hover:opacity-90"
+              >
+                <FolderOpen
+                  size={11}
+                  strokeWidth={1.75}
+                  className="shrink-0 text-[var(--text-2)]"
+                  aria-hidden
+                />
+                <span className="truncate">{tab.name}</span>
+              </button>
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onCloseTab(tab.path);
+                }}
+                title="Cerrar proyecto"
+                className="flex w-6 shrink-0 items-center justify-center pr-1.5 text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
+              >
+                <X size={11} strokeWidth={2} aria-hidden />
+              </button>
+            </div>
+          );
+        })}
         <button
           type="button"
           onClick={onNewProject}
