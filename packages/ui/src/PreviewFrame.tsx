@@ -1,5 +1,4 @@
-// PreviewFrame — UI.md §4 / UX §4. Toolbar: tools a la izquierda,
-// dirección centrada (píldora), recargar a la derecha.
+// PreviewFrame — UI.md §4 / UX §4. Toolbar: tools | píldora de ruta + recargar | viewport.
 
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import {
@@ -325,8 +324,8 @@ export function PreviewFrame({
         </AnimatedPanelColumn>
 
         <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${previewTransition}`}>
-          <div className="relative flex h-10 shrink-0 items-center">
-        <div className="z-10 flex items-center gap-0.5">
+          <div className="mb-2 flex h-8 shrink-0 items-center gap-2">
+        <div className="flex h-full shrink-0 items-center gap-0.5">
           {(Object.keys(MODE_META) as PreviewModeUi[]).map((key) => {
             const meta = MODE_META[key];
             const Icon = meta.Icon;
@@ -369,16 +368,31 @@ export function PreviewFrame({
           ) : null}
         </div>
 
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
-          <div className="pointer-events-auto relative">
+        <div className="relative flex h-full min-w-0 flex-1 items-center justify-center">
+          <div
+            className={`flex h-7 max-w-[360px] shrink-0 items-center rounded-full bg-[var(--bg-2)] px-3 transition-colors duration-120 ${
+              live ? "hover:bg-[var(--bg-3)]" : ""
+            }`}
+          >
+            <div className="flex shrink-0 items-center gap-1.5">
+              <Globe size={13} strokeWidth={1.75} className="shrink-0 text-[var(--text-2)]" />
+              <button
+                type="button"
+                onClick={onReload}
+                disabled={!live}
+                title="Recargar preview"
+                className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-2)] transition-colors duration-120 enabled:hover:text-[var(--text-0)] disabled:cursor-default disabled:opacity-40"
+              >
+                <RotateCw size={14} strokeWidth={1.75} />
+              </button>
+            </div>
             <button
               type="button"
               disabled={!live}
               onClick={() => live && setPagesOpen((v) => !v)}
               title={`Páginas — ${routeLabel(previewPath)}`}
-              className="flex h-7 max-w-[280px] items-center gap-1.5 rounded-full bg-[var(--bg-2)] px-3 transition-colors duration-120 enabled:cursor-pointer enabled:hover:bg-[var(--bg-3)] disabled:cursor-default"
+              className="ml-2 flex min-w-0 items-center gap-1.5 enabled:cursor-pointer disabled:cursor-default"
             >
-              <Globe size={13} strokeWidth={1.75} className="shrink-0 text-[var(--text-2)]" />
               <span className="min-w-0 truncate text-[12.5px] text-[var(--text-1)]">
                 {routeLabel(previewPath)}
               </span>
@@ -393,54 +407,47 @@ export function PreviewFrame({
                 aria-hidden
               />
             </button>
-            {pagesOpen && live ? (
-              <>
-                <button
-                  type="button"
-                  aria-label="Cerrar"
-                  className="fixed inset-0 z-10 cursor-default"
-                  onClick={() => setPagesOpen(false)}
-                />
-                <div className="absolute top-full left-1/2 z-20 mt-1 w-56 -translate-x-1/2 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-                  <p className="px-3 py-1 font-mono text-[length:var(--fs-0)] tracking-wide text-[var(--text-2)] uppercase">
-                    Páginas
-                  </p>
-                  <div className="max-h-64 overflow-y-auto">
-                    <PagesMenu
-                      pages={pages}
-                      onSelectPage={(path) => {
-                        onSelectPage?.(path);
-                        setPagesOpen(false);
-                      }}
-                    />
-                  </div>
-                  {onOpenInBrowser != null ? (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        onOpenInBrowser();
-                        setPagesOpen(false);
-                      }}
-                      className="flex w-full items-center gap-2 border-t border-[var(--line)] px-3 py-2 text-left text-[length:var(--fs-1)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-2)]"
-                    >
-                      <ExternalLink size={13} strokeWidth={1.75} className="text-[var(--text-2)]" />
-                      Abrir en navegador
-                    </button>
-                  ) : null}
-                </div>
-              </>
-            ) : null}
           </div>
+          {pagesOpen && live ? (
+            <>
+              <button
+                type="button"
+                aria-label="Cerrar"
+                className="fixed inset-0 z-10 cursor-default"
+                onClick={() => setPagesOpen(false)}
+              />
+              <div className="absolute top-full left-1/2 z-20 mt-1 w-56 -translate-x-1/2 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+                <p className="px-3 py-1 font-mono text-[length:var(--fs-0)] tracking-wide text-[var(--text-2)] uppercase">
+                  Páginas
+                </p>
+                <div className="max-h-64 overflow-y-auto">
+                  <PagesMenu
+                    pages={pages}
+                    onSelectPage={(path) => {
+                      onSelectPage?.(path);
+                      setPagesOpen(false);
+                    }}
+                  />
+                </div>
+                {onOpenInBrowser != null ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onOpenInBrowser();
+                      setPagesOpen(false);
+                    }}
+                    className="flex w-full items-center gap-2 border-t border-[var(--line)] px-3 py-2 text-left text-[length:var(--fs-1)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-2)]"
+                  >
+                    <ExternalLink size={13} strokeWidth={1.75} className="text-[var(--text-2)]" />
+                    Abrir en navegador
+                  </button>
+                ) : null}
+              </div>
+            </>
+          ) : null}
         </div>
 
-        <div className="z-10 ml-auto flex items-center gap-0.5">
-          <ToolbarButton
-            onClick={onReload}
-            disabled={!live}
-            title="Recargar preview"
-          >
-            <RotateCw size={15} strokeWidth={1.75} />
-          </ToolbarButton>
+        <div className="flex h-full shrink-0 items-center gap-0.5">
           <div className="relative">
             <ToolbarButton
               disabled={!live}
