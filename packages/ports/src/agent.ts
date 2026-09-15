@@ -16,6 +16,8 @@ export type ModelRef = {
   capabilities: {
     reasoning: boolean;
     effort: boolean;
+    /** Variantes OpenCode soportadas (low / high / max). Vacío = todas si reasoning. */
+    reasoningVariants?: ("low" | "high" | "max")[];
     images: boolean;
     tools: boolean;
   };
@@ -37,7 +39,14 @@ export type TurnPart =
 export type AgentEvent =
   | { type: "session"; sessionId: SessionId }
   | { type: "text-delta"; text: string }
-  | { type: "tool"; name: string; status: "start" | "end"; detail?: string }
+  | { type: "reasoning-delta"; text: string }
+  | {
+      type: "tool";
+      id?: string;
+      name: string;
+      status: "start" | "end";
+      detail?: string;
+    }
   | { type: "permission"; permissionId: string; summary: string }
   | { type: "done" }
   | { type: "error"; message: string };

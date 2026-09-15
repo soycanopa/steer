@@ -30,7 +30,8 @@ export type ParentToFrame =
   | { type: "steer:clear-pins" }
   | { type: "steer:select-node"; id: string }
   | { type: "steer:focus-pin"; intentId: string }
-  | { type: "steer:capture" };
+  | { type: "steer:capture" }
+  | { type: "steer:request-tree" };
 
 export type FrameToParent =
   | { type: "steer:ready" }
@@ -46,6 +47,7 @@ export type FrameToParent =
       intentId: string | null;
       body: string;
       steerId: string;
+      selection: Selection | null;
     };
 
 export type PreviewPort = {
@@ -60,5 +62,9 @@ export type PreviewPort = {
   selectNode(id: string): void;
   focusPin(intentId: string): void;
   capture(): void;
+  /** Pide al bridge un push inmediato de steer:tree. */
+  requestTree(): void;
+  /** Reenvía mensajes encolados cuando el iframe se monta. */
+  flushPending(): void;
   subscribe(handler: (msg: FrameToParent) => void): () => void;
 };
