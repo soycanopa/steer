@@ -22,6 +22,8 @@ pub fn run() {
         .manage(proxy::new_handle())
         .invoke_handler(tauri::generate_handler![
             project::project_open,
+            project::project_create_start,
+            project::project_ensure_devtools,
             project::project_read_package,
             project::project_list_routes,
             project::project_reveal_in_finder,
@@ -31,6 +33,15 @@ pub fn run() {
             opencode::opencode_ensure,
             prefs::prefs_get_last_project,
             prefs::prefs_set_last_project,
+            prefs::prefs_get_open_project_tabs,
+            prefs::prefs_set_open_project_tabs,
+            prefs::prefs_get_project_workspace,
+            prefs::prefs_set_project_workspace,
+            prefs::prefs_delete_project_workspace,
+            prefs::prefs_get_agent_prefs,
+            prefs::prefs_set_agent_prefs,
+            prefs::prefs_get_last_agent_session,
+            prefs::prefs_set_last_agent_session,
             proxy::proxy_start,
             proxy::proxy_stop
         ])
