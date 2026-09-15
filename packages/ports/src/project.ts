@@ -19,10 +19,23 @@ export type ProjectRoute = {
   file: string;
 };
 
+export type CreateProgress = {
+  percent: number;
+  message: string;
+};
+
 export type ProjectPort = {
   open(path: string): Promise<ProjectMeta>;
+  /** Instala y configura @tanstack/devtools-vite si falta (data-tsd-source). */
+  ensureDevtools(path: string): Promise<ProjectMeta>;
   listRoutes(path: string): Promise<ProjectRoute[]>;
-  createStart(parentDir: string, name: string): Promise<ProjectMeta>;
+  createStart(
+    parentDir: string,
+    name: string,
+    onProgress?: (progress: CreateProgress) => void,
+  ): Promise<ProjectMeta>;
   startDev(path: string): Promise<{ url: string; spawned: boolean }>;
+  /** Apaga solo el proxy del preview; el dev server sigue vivo. */
+  detachPreview(): Promise<void>;
   stopDev(path: string): Promise<void>;
 };

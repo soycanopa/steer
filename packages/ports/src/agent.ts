@@ -48,6 +48,15 @@ export type AgentEvent =
       detail?: string;
     }
   | { type: "permission"; permissionId: string; summary: string }
+  | {
+      type: "question";
+      questionId: string;
+      questions: Array<{
+        prompt: string;
+        header?: string;
+        options?: string[];
+      }>;
+    }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -73,6 +82,14 @@ export type AgentPort = {
     accept: boolean,
     remember?: boolean,
   ): Promise<void>;
+  respondQuestion?(
+    sessionId: SessionId,
+    questionId: string,
+    answers: string[][],
+    directory: string,
+  ): Promise<void>;
   /** Sesiones del provider para un directorio de proyecto (P0: OpenCode). */
   listSessions?(directory: string): Promise<AgentSessionSummary[]>;
+  /** Elimina una sesión remota del provider (P0: OpenCode DELETE /session/:id). */
+  deleteSession?(sessionId: SessionId, directory: string): Promise<void>;
 };
