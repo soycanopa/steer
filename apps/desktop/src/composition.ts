@@ -6,8 +6,10 @@ import { createAppStore } from "@steer/app-state";
 import {
   AGENT_OPENCODE_DEFAULT_URL,
   createOpencodeAgent,
+  type OpencodeAgentPort,
 } from "@steer/agent-opencode";
 import type { AgentPort } from "@steer/ports";
+import { ensureOpencode } from "./tauri/opencode-runtime";
 import { createPrefs } from "./tauri/prefs";
 import { createIframePreviewPort } from "./tauri/preview-port";
 import { createTauriProjectPort } from "./tauri/project-port";
@@ -32,13 +34,35 @@ const prefs = createPrefs();
 
 // Fase F: adapter OpenCode registrado aquí (y solo aquí).
 // Un provider nuevo = packages/agent-<id> + una línea acá.
+const opencodeAgent: OpencodeAgentPort = createOpencodeAgent({
+  baseUrl: AGENT_OPENCODE_DEFAULT_URL,
+});
+
 const agents: AgentPort[] = [
-  createOpencodeAgent({ baseUrl: AGENT_OPENCODE_DEFAULT_URL }),
+  {
+    ...opencodeAgent,
+    async ensureRuntime(directory) {
+      const info = await ensureOpencode(directory);
+      opencodeAgent.setBaseUrl(info.baseUrl);
+    },
+  },
 ];
 
-export const store = createAppStore({ projectPort, previewPort, prefs, agents });
+// Conservar el store entre HMR de Vite; sin esto el proyecto “desaparece” al
+// recargar módulos en dev aunque prefs.json siga teniendo lastProject.
+const hot = import.meta.hot;
+export const store =
+  hot?.data.store ??
+  createAppStore({ projectPort, previewPort, prefs, agents });
+if (hot) hot.data.store = store;
 
 /** La UI registra el iframe; el adapter no toca React. */
 export function setFrameEl(el: HTMLIFrameElement | null): void {
   frameRef.current = el;
+  if (el?.contentWindow) {
+    previewPort.flushPending();
+    const st = store.getState();
+    previewPort.setMode(st.mode);
+    previewPort.setInspect(st.inspectOn);
+  }
 }

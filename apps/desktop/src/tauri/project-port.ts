@@ -7,7 +7,7 @@
 // cargue con el bridge inyectado. El upstream queda como detalle del host.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { ProjectMeta, ProjectPort } from "@steer/ports";
+import type { ProjectMeta, ProjectPort, ProjectRoute } from "@steer/ports";
 
 function unimplemented(what: string): never {
   throw new Error(`No implementado todavía: ${what}`);
@@ -19,6 +19,8 @@ type ProxyStartInfo = { proxyUrl: string };
 export function createTauriProjectPort(): ProjectPort {
   return {
     open: (path) => invoke<ProjectMeta>("project_open", { path }),
+
+    listRoutes: (path) => invoke<ProjectRoute[]>("project_list_routes", { path }),
 
     startDev: async (path) => {
       const dev = await invoke<DevStartInfo>("project_dev_start", { path });

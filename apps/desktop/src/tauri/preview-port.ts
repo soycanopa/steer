@@ -9,6 +9,7 @@ export function createIframePreviewPort(
   onDebug?: (line: string) => void,
 ): PreviewPort {
   const handlers = new Set<(msg: FrameToParent) => void>();
+  const pending: ParentToFrame[] = [];
 
   window.addEventListener("message", (e) => {
     if (e.source !== getFrame()?.contentWindow) return;
@@ -34,9 +35,19 @@ export function createIframePreviewPort(
       onDebug?.(`→ ${msg.type}`);
       frameWindow.postMessage(msg, "*");
     } else {
-      onDebug?.("⚠ postMessage sin iframe");
-      console.warn("steer:preview postMessage sin iframe", msg.type);
+      pending.push(msg);
+      onDebug?.(`⏳ ${msg.type} (sin iframe)`);
     }
+  }
+
+  function flushPending(): void {
+    const frameWindow = getFrame()?.contentWindow;
+    if (!frameWindow || pending.length === 0) return;
+    for (const msg of pending) {
+      onDebug?.(`→ ${msg.type} (flush)`);
+      frameWindow.postMessage(msg, "*");
+    }
+    pending.length = 0;
   }
 
   return {
@@ -52,6 +63,8 @@ export function createIframePreviewPort(
     selectNode: (id) => post({ type: "steer:select-node", id }),
     focusPin: (intentId) => post({ type: "steer:focus-pin", intentId }),
     capture: () => post({ type: "steer:capture" }),
+    requestTree: () => post({ type: "steer:request-tree" }),
+    flushPending,
     subscribe: (handler) => {
       handlers.add(handler);
       return () => handlers.delete(handler);
