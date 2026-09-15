@@ -1012,13 +1012,25 @@
       intentId: commentEditing.intentId || null,
       body: body,
       steerId: steerId || "",
+      selection: selectedEl ? buildSelection(selectedEl) : null,
     });
     hideCommentPopover();
+  }
+
+  function clearSelection() {
+    selectedEl = null;
+    selectedId = null;
+    if (selectBox) selectBox.style.display = "none";
+    if (selectLabel) selectLabel.style.display = "none";
+    hideSpacing();
   }
 
   function setPreviewMode(mode) {
     commentMode = mode === "comment";
     var inspectOn = mode !== "interact";
+    if (mode === "interact") {
+      clearSelection();
+    }
     setInspect(inspectOn);
     styleOverlayForMode();
     if (commentMode) {
@@ -1151,6 +1163,9 @@
         break;
       case "steer:capture":
         capturePreview();
+        break;
+      case "steer:request-tree":
+        pushTree();
         break;
       default:
         break;
