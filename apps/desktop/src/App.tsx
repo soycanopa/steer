@@ -1,22 +1,34 @@
-import { useEffect, useMemo, useState } from "react";
+import { isTauri } from "@tauri-apps/api/core";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "zustand";
 import {
   AppShell,
   ChatPanel,
-  EmptyState,
+  HomeView,
   InspectorPanel,
   LayersPanel,
+  type LayersTreeState,
   PreviewFrame,
-  SplitPane,
+  ProjectTabStrip,
+  groupModelsByProvider,
+  tweakEditLabel,
 } from "@steer/ui";
+import { joinPreviewPageUrl } from "@steer/app-state";
 import { setFrameEl, store } from "./composition";
 import { DebugDrawer } from "./DebugDrawer";
 import { pickDirectory } from "./tauri/dialog";
+import { openUrlInBrowser } from "./tauri/open-url";
 import { startWindowDrag } from "./tauri/window";
 
 
 // Capas: mapa del árbol del bridge al view model, marcando activo el
 // nodo cuya source coincide con la selección actual.
+function lastFolderName(path: string): string {
+  const trimmed = path.replace(/\/+$/, "");
+  const slash = trimmed.lastIndexOf("/");
+  return slash >= 0 ? trimmed.slice(slash + 1) : trimmed;
+}
+
 function mapTree(
   nodes: Array<{ id: string; tag: string; cls: string | null; text: string | null; source: string | null; children: unknown[] }> | null,
   activeSource: { file: string; line: number; col: number } | null,
@@ -50,9 +62,9 @@ export default function App() {
   const projectStatus = useStore(store, (s) => s.projectStatus);
   const projectMeta = useStore(store, (s) => s.projectMeta);
   const projectError = useStore(store, (s) => s.projectError);
-  const lastProject = useStore(store, (s) => s.lastProject);
   const previewStatus = useStore(store, (s) => s.previewStatus);
   const previewUrl = useStore(store, (s) => s.previewUrl);
+  const previewPath = useStore(store, (s) => s.previewPath);
   const previewError = useStore(store, (s) => s.previewError);
   const reloadNonce = useStore(store, (s) => s.reloadNonce);
   const inspectOn = useStore(store, (s) => s.inspectOn);
@@ -63,6 +75,7 @@ export default function App() {
   const tweaks = useStore(store, (s) => s.tweaks);
   const queue = useStore(store, (s) => s.queue);
   const tree = useStore(store, (s) => s.tree);
+  const projectRoutes = useStore(store, (s) => s.projectRoutes);
   const layersOpen = useStore(store, (s) => s.layersOpen);
   const sessions = useStore(store, (s) => s.sessions);
   const activeSessionId = useStore(store, (s) => s.activeSessionId);
@@ -71,12 +84,18 @@ export default function App() {
   const draftAttachments = useStore(store, (s) => s.draftAttachments);
   const agentStatus = useStore(store, (s) => s.agentStatus);
   const agentDetail = useStore(store, (s) => s.agentDetail);
+  const agentPorts = useStore(store, (s) => s.agentPorts);
   const agentModels = useStore(store, (s) => s.agentModels);
   const selectedModel = useStore(store, (s) => s.selectedModel);
+  const reasoningEffort = useStore(store, (s) => s.reasoningEffort);
   const agentBusy = useStore(store, (s) => s.agentBusy);
   const permissionPolicy = useStore(store, (s) => s.permissionPolicy);
   const agentSessions = useStore(store, (s) => s.agentSessions);
   const [chatWidth, setChatWidth] = useState(340);
+  const [layersWidth, setLayersWidth] = useState(240);
+  const [workspaceView, setWorkspaceView] = useState<"home" | "project">("home");
+  const [openProjects, setOpenProjects] = useState<string[]>([]);
+  const userChoseHomeRef = useRef(false);
 
   // No map dentro del selector de Zustand: devuelve array nuevo y
   // dispara render loops. Derivar fuera con useMemo.
@@ -85,6 +104,24 @@ export default function App() {
       queue.flatMap((i) =>
         i.kind === "comment"
           ? [{ id: i.id, pin: i.pin, body: i.body }]
+          : [],
+      ),
+    [queue],
+  );
+
+  const pendingEdits = useMemo(
+    () =>
+      queue.flatMap((i) =>
+        i.kind === "tweak"
+          ? [
+              {
+                id: i.id,
+                prop: i.prop,
+                from: i.from,
+                to: i.to,
+                label: tweakEditLabel(i.prop, i.to),
+              },
+            ]
           : [],
       ),
     [queue],
@@ -104,14 +141,68 @@ export default function App() {
     [agentSessions, activeAgentSessionId],
   );
 
+  const agentTabs = useMemo(
+    () => agentPorts.map((p) => ({ id: p.id, label: p.label })),
+    [agentPorts],
+  );
+  const providerGroups = useMemo(
+    () => groupModelsByProvider(agentModels),
+    [agentModels],
+  );
+  const selectedModelKey =
+    selectedModel != null
+      ? `${selectedModel.providerId}/${selectedModel.modelId}`
+      : null;
+  const showModelReasoning = selectedModel?.capabilities.reasoning === true;
+
   useEffect(() => {
-    void store.getState().bootstrap();
+    let cancelled = false;
+    void (async () => {
+      for (let i = 0; i < 60 && !cancelled; i += 1) {
+        if (isTauri()) {
+          await store.getState().bootstrap();
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 100));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Asegura que prefs tenga el último proyecto si cierran con el proyecto abierto.
+  useEffect(() => {
+    const flush = () => void store.getState().persistLastProject();
+    window.addEventListener("pagehide", flush);
+    return () => window.removeEventListener("pagehide", flush);
   }, []);
 
   async function openViaDialog() {
     const path = await pickDirectory();
-    if (path) await store.getState().openProject(path);
+    if (!path) return;
+    userChoseHomeRef.current = false;
+    await store.getState().openProject(path);
+    setWorkspaceView("project");
   }
+
+  async function selectProject(path: string) {
+    userChoseHomeRef.current = false;
+    if (projectMeta?.root !== path) {
+      await store.getState().openProject(path);
+    }
+    setWorkspaceView("project");
+  }
+
+  useEffect(() => {
+    if (projectStatus !== "open" || projectMeta == null) return;
+    setOpenProjects((prev) =>
+      prev.includes(projectMeta.root) ? prev : [...prev, projectMeta.root],
+    );
+    if (!userChoseHomeRef.current) {
+      setWorkspaceView("project");
+    }
+  }, [projectStatus, projectMeta?.root]);
 
   // UX.md §7: ⌘O abre · ⌘Z undo local · ⌘Enter aplica · I Inspect ·
   // C comentarios · V interactuar · Esc deselecciona.
@@ -161,89 +252,88 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKey);
   }, [selection]);
 
-  if (projectStatus === "open" && projectMeta) {
-    const devStatus =
-      previewStatus === "live" ? "live" : previewStatus === "down" ? "down" : "idle";
-    const agentUiStatus =
-      agentStatus === "up" ? "live" : agentStatus === "down" ? "down" : "idle";
+  const projectOpen = projectStatus === "open" && projectMeta != null;
+  const showProjectWorkspace = projectOpen && workspaceView === "project";
+  const previewFrameUrl =
+    previewUrl != null ? joinPreviewPageUrl(previewUrl, previewPath) : null;
+  const layersTreeState: LayersTreeState =
+    previewStatus !== "live"
+      ? "idle"
+      : tree === null
+        ? "loading"
+        : tree.length === 0
+          ? "empty"
+          : "ready";
+  const devStatus =
+    previewStatus === "live" ? "live" : previewStatus === "down" ? "down" : "idle";
+  const agentUiStatus =
+    agentStatus === "up" ? "live" : agentStatus === "down" ? "down" : "idle";
 
-    const modelOptions = agentModels.map((m) => ({
-      key: `${m.providerId}/${m.modelId}`,
-      label: m.label.length > 28 ? `${m.label.slice(0, 26)}…` : m.label,
-      reasoning: m.capabilities.reasoning,
+  const currentTweaks =
+    selection !== null && selectedId !== null
+      ? tweaks
+          .filter((t) => t.steerId === selectedId && t.scope === scope)
+          .map((t) => ({ prop: t.prop, from: t.from, to: t.to }))
+      : [];
+
+  const activeSession =
+    sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
+
+  const sessionViews = [...sessions]
+    .sort((a, b) => b.createdAt - a.createdAt)
+    .map((s) => ({
+      id: s.id,
+      title: s.title,
+      createdAt: s.createdAt,
+      blockCount: s.blocks.length,
+      active: s.id === activeSessionId,
     }));
-    const selectedModelKey =
-      selectedModel != null
-        ? `${selectedModel.providerId}/${selectedModel.modelId}`
-        : null;
 
-    const currentTweaks =
-      selection !== null && selectedId !== null
-        ? tweaks
-            .filter((t) => t.steerId === selectedId && t.scope === scope)
-            .map((t) => ({ prop: t.prop, from: t.from, to: t.to }))
-        : [];
+  const inspectorVisible = selection !== null && inspectOn;
 
-    const currentPins =
-      selection !== null
-        ? queue
-            .filter(
-              (i) =>
-                i.kind === "comment" &&
-                i.scope === scope &&
-                `${i.selection.source.file}:${i.selection.source.line}:${i.selection.source.col}` ===
-                  `${selection.source.file}:${selection.source.line}:${selection.source.col}`,
-            )
-            .map((i) =>
-              i.kind === "comment" ? { id: i.id, pin: i.pin, body: i.body } : null,
-            )
-            .filter((p) => p !== null)
-        : [];
+  const projectCards = openProjects.map((path) => ({
+    path,
+    name: lastFolderName(path),
+    active: projectMeta?.root === path,
+    previewUrl:
+      projectMeta?.root === path && previewUrl != null
+        ? joinPreviewPageUrl(previewUrl, previewPath)
+        : null,
+    previewLive: projectMeta?.root === path && previewStatus === "live",
+  }));
 
-    // UX §3 (ajustada): preview | inspector (solo con selección) |
-    // chat — el chat es columna propia, no parte del inspector.
-    const activeSession =
-      sessions.find((s) => s.id === activeSessionId) ?? sessions[0] ?? null;
-
-    const sessionViews = [...sessions]
-      .sort((a, b) => b.createdAt - a.createdAt)
-      .map((s) => ({
-        id: s.id,
-        title: s.title,
-        createdAt: s.createdAt,
-        blockCount: s.blocks.length,
-        active: s.id === activeSessionId,
-      }));
-
-    return (
-      <AppShell
-        projectName={projectMeta.name}
-        projectPath={projectMeta.root}
-        devStatus={devStatus}
-        agentStatus={agentUiStatus}
-        agentLabel={selectedModel?.label ?? "listo"}
-        agentDetail={agentDetail}
-        agentBusy={agentBusy}
-        modelLabel={selectedModel?.label ?? null}
-        mode={mode}
-        queueCount={queue.length}
-        chatOpen={chatOpen}
-        onToggleChat={() => store.getState().toggleChat()}
-        onStartDrag={startWindowDrag}
-      >
-        <DebugDrawer open={debugOpen} />
-        <SplitPane
-          layers={
-            layersOpen ? (
-              <LayersPanel
-                nodes={mapTree(tree, selection?.source ?? null)}
-                onSelect={(id) => store.getState().selectLayer(id)}
-              />
-            ) : null
-          }
-          left={
-            <PreviewFrame
-              url={previewUrl}
+  return (
+    <AppShell
+      projectTabs={
+        <ProjectTabStrip
+          projectName={projectOpen ? lastFolderName(projectMeta.root) : null}
+          homeActive={workspaceView === "home"}
+          projectActive={showProjectWorkspace}
+          onGoHome={() => {
+            userChoseHomeRef.current = true;
+            setWorkspaceView("home");
+          }}
+          onSelectProject={() => {
+            userChoseHomeRef.current = false;
+            setWorkspaceView("project");
+          }}
+          onNewProject={() => void openViaDialog()}
+          onStartDrag={startWindowDrag}
+        />
+      }
+      devStatus={devStatus}
+      agentStatus={agentUiStatus}
+      agentDetail={agentDetail}
+      agentBusy={agentBusy}
+      modelLabel={selectedModel?.label ?? null}
+      mode={mode}
+      queueCount={queue.length}
+    >
+      <DebugDrawer open={debugOpen} />
+      {showProjectWorkspace ? (
+        <PreviewFrame
+              url={previewFrameUrl}
+              previewPath={previewPath}
               status={previewStatus}
               error={previewError}
               iframeKey={`${previewUrl ?? "none"}#${reloadNonce}`}
@@ -252,89 +342,113 @@ export default function App() {
               onReload={() => store.getState().reloadPreview()}
               onRetry={() => void store.getState().startPreview()}
               onCapture={() => store.getState().capturePreview()}
+              pages={projectRoutes.map((route) => ({
+                ...route,
+                active: route.path === previewPath,
+              }))}
+              onSelectPage={(path) => store.getState().navigatePreview(path)}
+              onOpenInBrowser={() => {
+                const { previewUrl: base, previewPath: path } = store.getState();
+                if (base != null) {
+                  void openUrlInBrowser(joinPreviewPageUrl(base, path));
+                }
+              }}
               onFrameEl={setFrameEl}
               layersOpen={layersOpen}
               onToggleLayers={() => store.getState().toggleLayers()}
+              layersPanel={
+                <LayersPanel
+                  nodes={mapTree(tree, selection?.source ?? null)}
+                  pages={projectRoutes.map((route) => ({
+                    ...route,
+                    active: route.path === previewPath,
+                  }))}
+                  treeState={layersTreeState}
+                  onSelect={(id) => store.getState().selectLayer(id)}
+                  onSelectPage={(path) => store.getState().navigatePreview(path)}
+                />
+              }
+              layersWidth={layersWidth}
+              onLayersWidthChange={setLayersWidth}
+              chatOpen={chatOpen}
+              onToggleChat={() => store.getState().toggleChat()}
+              sidePanel={
+                inspectorVisible ? (
+                  <InspectorPanel
+                    selection={selection}
+                    scope={scope}
+                    tweaks={currentTweaks}
+                    onSetScope={(s) => store.getState().setScope(s)}
+                    onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
+                    onResetTweak={(prop) => store.getState().resetTweak(prop)}
+                    onResetAll={() => store.getState().resetAllTweaks()}
+                    onClose={() => store.getState().deselect()}
+                  />
+                ) : chatOpen && activeSession !== null ? (
+                  <ChatPanel
+                    transcript={activeSession.blocks}
+                    sessionTitle={activeSession.title}
+                    sessions={sessionViews}
+                    queueCount={queue.length}
+                    attachments={draftAttachments}
+                    draftNote={draftNote}
+                    pendingComments={pendingComments}
+                    pendingEdits={pendingEdits}
+                    agentTabs={agentTabs}
+                    providerGroups={providerGroups}
+                    selectedModelKey={selectedModelKey}
+                    reasoningEffort={reasoningEffort}
+                    showModelReasoning={showModelReasoning}
+                    permissionPolicy={permissionPolicy}
+                    agentSessions={agentSessionItems}
+                    agentBusy={agentBusy}
+                    agentOnline={agentUiStatus === "live"}
+                    onDraftNote={(text) => store.getState().setDraftNote(text)}
+                    onApply={() => void store.getState().applyQueue()}
+                    onClearQueue={() => store.getState().clearQueue()}
+                    onNewSession={() => store.getState().newSession()}
+                    onSelectSession={(id) => store.getState().selectSession(id)}
+                    onSelectModel={(key) => {
+                      const m = agentModels.find(
+                        (mod) => `${mod.providerId}/${mod.modelId}` === key,
+                      );
+                      if (m) store.getState().setModel(m);
+                    }}
+                    onSetReasoningEffort={(effort) =>
+                      store.getState().setReasoningEffort(effort)
+                    }
+                    onSetPermissionPolicy={(policy) =>
+                      store.getState().setPermissionPolicy(policy)
+                    }
+                    onRefreshAgentSessions={() =>
+                      void store.getState().refreshAgentSessions()
+                    }
+                    onBindAgentSession={(id) =>
+                      store.getState().bindAgentSession(id)
+                    }
+                    onAbort={() => void store.getState().abortTurn()}
+                    onRemoveComment={(id) => store.getState().removeQueued(id)}
+                    onFocusComment={(id) => store.getState().focusComment(id)}
+                    onRemoveEdit={(id) => store.getState().removeQueued(id)}
+                    onFocusEdit={(id) => store.getState().focusEdit(id)}
+                    onRemoveAttachment={(id) =>
+                      store.getState().removeAttachment(id)
+                    }
+                  />
+                ) : null
+              }
+              sidePanelWidth={chatWidth}
+              onSidePanelWidthChange={setChatWidth}
             />
-          }
-          middle={
-            // Inspector solo con nodo seleccionado Y modo Inspect ON;
-            // en Interact el panel de propiedades no aparece.
-            selection !== null && inspectOn ? (
-              <InspectorPanel
-                selection={selection}
-                scope={scope}
-                tweaks={currentTweaks}
-                pins={currentPins}
-                onSetScope={(s) => store.getState().setScope(s)}
-                onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
-                onResetTweak={(prop) => store.getState().resetTweak(prop)}
-                onResetAll={() => store.getState().resetAllTweaks()}
-                onAddPin={(body) => store.getState().queueComment(body)}
-                onRemovePin={(id) => store.getState().removeQueued(id)}
-              />
-            ) : null
-          }
-          right={
-            chatOpen && activeSession !== null ? (
-              <ChatPanel
-                transcript={activeSession.blocks}
-                sessionTitle={activeSession.title}
-                sessions={sessionViews}
-                queueCount={queue.length}
-                attachments={draftAttachments}
-                draftNote={draftNote}
-                pendingComments={pendingComments}
-                models={modelOptions}
-                selectedModelKey={selectedModelKey}
-                permissionPolicy={permissionPolicy}
-                agentSessions={agentSessionItems}
-                agentBusy={agentBusy}
-                agentOnline={agentUiStatus === "live"}
-                onDraftNote={(text) => store.getState().setDraftNote(text)}
-                onApply={() => void store.getState().applyQueue()}
-                onClearQueue={() => store.getState().clearQueue()}
-                onNewSession={() => store.getState().newSession()}
-                onSelectSession={(id) => store.getState().selectSession(id)}
-                onSelectModel={(key) => {
-                  const m = agentModels.find(
-                    (mod) => `${mod.providerId}/${mod.modelId}` === key,
-                  );
-                  if (m) store.getState().setModel(m);
-                }}
-                onSetPermissionPolicy={(policy) =>
-                  store.getState().setPermissionPolicy(policy)
-                }
-                onRefreshAgentSessions={() =>
-                  void store.getState().refreshAgentSessions()
-                }
-                onBindAgentSession={(id) =>
-                  store.getState().bindAgentSession(id)
-                }
-                onAbort={() => void store.getState().abortTurn()}
-                onRemoveComment={(id) => store.getState().removeQueued(id)}
-                onFocusComment={(id) => store.getState().focusComment(id)}
-                onRemoveAttachment={(id) =>
-                  store.getState().removeAttachment(id)
-                }
-              />
-            ) : null
-          }
-          rightWidth={chatWidth}
-          onRightWidthChange={setChatWidth}
+      ) : (
+        <HomeView
+          projects={projectCards}
+          opening={projectStatus === "opening"}
+          error={projectError}
+          onOpenProject={() => void openViaDialog()}
+          onSelectProject={(path) => void selectProject(path)}
         />
-      </AppShell>
-    );
-  }
-
-  return (
-    <EmptyState
-      recents={lastProject ? [lastProject] : []}
-      opening={projectStatus === "opening"}
-      error={projectError}
-      onOpenProject={() => void openViaDialog()}
-      onOpenRecent={(path) => void store.getState().openProject(path)}
-      onStartDrag={startWindowDrag}
-    />
+      )}
+    </AppShell>
   );
 }
