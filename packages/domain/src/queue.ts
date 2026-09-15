@@ -19,15 +19,33 @@ export type CommentInput = {
   pin: number;
 };
 
+/** Identidad del intent. Inyectable para tests deterministas. */
+export type IntentMeta = {
+  id?: string;
+  at?: number;
+};
+
+function defaultMeta(meta: IntentMeta | undefined): { id: string; at: number } {
+  return {
+    id: meta?.id ?? crypto.randomUUID(),
+    at: meta?.at ?? Date.now(),
+  };
+}
+
 function sourceKey(s: Selection): string {
   return `${s.source.file}:${s.source.line}:${s.source.col}`;
 }
 
-export function enqueueTweak(queue: Intent[], input: TweakInput): Intent[] {
+export function enqueueTweak(
+  queue: Intent[],
+  input: TweakInput,
+  meta?: IntentMeta,
+): Intent[] {
+  const { id, at } = defaultMeta(meta);
   const intent: Intent = {
-    id: crypto.randomUUID(),
+    id,
     kind: "tweak",
-    at: Date.now(),
+    at,
     selection: input.selection,
     scope: input.scope,
     prop: input.prop,
@@ -54,11 +72,13 @@ function filterSameTweak(queue: Intent[], incoming: Intent): Intent[] {
 export function enqueueComment(
   queue: Intent[],
   input: CommentInput,
+  meta?: IntentMeta,
 ): { queue: Intent[]; intent: Intent } {
+  const { id, at } = defaultMeta(meta);
   const intent: Intent = {
-    id: crypto.randomUUID(),
+    id,
     kind: "comment",
-    at: Date.now(),
+    at,
     selection: input.selection,
     scope: input.scope,
     pin: input.pin,
@@ -83,6 +103,6 @@ export function buildApplyPayload(
     projectRoot,
     route: opts.route ?? null,
     intents: queue,
-    userNote: opts.userNote,
+    ...(opts.userNote !== undefined ? { userNote: opts.userNote } : {}),
   };
 }

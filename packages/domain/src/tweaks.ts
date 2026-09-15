@@ -7,9 +7,24 @@ import type { TweakProp } from "./intent";
 
 /** Props del TweakList P0 en orden de UI.md §5.2. */
 export const P0_TWEAK_PROPS: TweakProp[] = [
+  "width",
+  "height",
   "fontSize",
+  "fontWeight",
+  "lineHeight",
+  "letterSpacing",
   "color",
   "textAlign",
+  "backgroundColor",
+  "flexDirection",
+  "flexWrap",
+  "justifyContent",
+  "alignItems",
+  "maxWidth",
+  "gap",
+  "objectFit",
+  "fontStyle",
+  "textDecoration",
   "margin",
   "padding",
   "borderRadius",
@@ -27,6 +42,41 @@ export function numFromPx(value: string | undefined): number | null {
 
 export function pxValue(n: number): string {
   return `${Math.round(n * 100) / 100}px`;
+}
+
+/** "400" | "normal" | "bold" → 100–900. */
+export function weightFromComputed(value: string | undefined): number | null {
+  if (value === undefined || value === "") return null;
+  const v = value.trim().toLowerCase();
+  if (v === "normal") return 400;
+  if (v === "bold") return 700;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function weightValue(n: number): string {
+  return String(n);
+}
+
+/** line-height "1.2" | "54.4px" → número para el control. */
+export function lineHeightFromComputed(value: string | undefined): number | null {
+  if (value === undefined || value === "normal") return null;
+  const px = numFromPx(value);
+  if (px !== null) return px;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : null;
+}
+
+export function lineHeightValue(n: number, computed?: string): string {
+  if (computed !== undefined && /px/.test(computed)) return pxValue(n);
+  if (n <= 4) return String(Math.round(n * 100) / 100);
+  return pxValue(n);
+}
+
+/** letter-spacing "normal" | "-2.45px" | "0.02em". */
+export function spacingFromComputed(value: string | undefined): number | null {
+  if (value === undefined || value === "normal") return 0;
+  return numFromPx(value) ?? 0;
 }
 
 /** computed opacity "1" / "0.55" → 0–100. */
