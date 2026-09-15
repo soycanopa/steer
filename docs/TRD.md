@@ -89,12 +89,24 @@ export type Selection = {
 export type TweakProp =
   | "fontSize"
   | "fontWeight"
+  | "lineHeight"
+  | "letterSpacing"
   | "color"
   | "backgroundColor"
   | "textAlign"
+  | "width"
+  | "height"
   | "padding"
   | "margin"
   | "gap"
+  | "flexDirection"
+  | "flexWrap"
+  | "justifyContent"
+  | "alignItems"
+  | "maxWidth"
+  | "objectFit"
+  | "fontStyle"
+  | "textDecoration"
   | "borderRadius"
   | "opacity";
 
@@ -269,9 +281,9 @@ Endpoints que **solo este adapter** conoce:
 | Crear sesión | `POST /session` body `{ title }` + `directory` |
 | Enviar | `POST /session/:id/prompt_async` |
 | Eventos | `GET /event` o `GET /global/event` SSE |
-| Abort | `POST /session/:id/abort` |
+| Abort | `POST /session/:id/abort` (si hay id; el adapter siempre aborta el SSE local) |
 | Diff (P1) | `GET /session/:id/diff` |
-| Permiso (P1) | `POST /session/:id/permissions/:permissionID` |
+| Permiso (P0 auto-aceptar) | `POST /session/:id/permissions/:permissionID` body `{ response: "once" \| "always" \| "reject" }` |
 
 Lista de modelos: siempre `GET /config/providers` mapeado a `ModelRef[]`. Nunca hardcodear. El chat solo ve `AgentPort.listModels()`.
 

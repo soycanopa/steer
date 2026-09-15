@@ -88,20 +88,25 @@ Si no hay source: path muestra `—` y banner warn.
 
 ### 5.2 Tweaks
 
+El conjunto de filas **depende del nodo** (`inspectKind`: texto / caja / imagen). No mostrar tipografía en un `div` ni `object-fit` en un `span`.
+
 Una fila por propiedad. Label 11px text-2 + control + valor.
 
-| Prop | Control | Notas |
+| Prop | Control | Dónde |
 | --- | --- | --- |
-| Font size | slider 10–72 + input | muestra px computed |
-| Weight | segmented 400 / 500 / 600 / 700 | |
-| Color | swatch + hex input | computed → hex best-effort |
-| Background | swatch + hex + “none” | |
-| Align | 4 icon buttons L/C/R/J | |
-| Padding | slider 0–64 o 4 inputs si se expande | P0: un slider = padding all |
-| Margin | box visual ligado (4 lados) | Fase D+; anidado al padding en el box de espaciado |
-| Gap | slider 0–64 | disabled si no es flex/grid |
-| Radius | slider 0–32 | |
-| Opacity | slider 0–100% | |
+| Width / Height | slider + input px | caja, imagen; texto si aplica |
+| Font size | slider 10–72 + input | texto |
+| Weight | segmented 400 / 500 / 600 / 700 | texto |
+| Line height / tracking | slider + input | texto |
+| Color | swatch + hex input | texto |
+| Align | 4 icon buttons L/C/R/J | texto |
+| Flex direction | row / column | caja flex |
+| Gap | slider 0–64 | caja flex/grid |
+| Object-fit | cover / contain / fill | imagen |
+| Background | swatch + hex | caja |
+| Padding / Margin | box visual (caja) o slider | todos |
+| Radius | slider 0–32 | todos |
+| Opacity | slider 0–100% | todos |
 
 Fila dirty: dot accent a la izquierda + valor `from → to` en mono.
 
