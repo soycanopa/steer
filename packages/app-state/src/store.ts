@@ -41,6 +41,7 @@ import {
   initialAgentSlice,
   pickDefaultModel,
   type AgentSlice,
+  type PermissionPolicy,
 } from "./agent";
 
 // Persistencia de prefs vía host (TRD §2). El adapter real vive en
@@ -103,6 +104,7 @@ export type SteerState = ProjectSlice &
     setModel(model: ModelRef): void;
     /** ask | plan | agent (OpenCode: build). */
     setAgentMode(mode: AgentMode): void;
+    setPermissionPolicy(policy: PermissionPolicy): void;
     /** Sesiones OpenCode del directorio del proyecto. */
     refreshAgentSessions(): Promise<void>;
     /** Une la sesión de chat local con una sesión OpenCode existente. */
@@ -702,6 +704,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                   liveSessionId,
                   ev.permissionId,
                   true,
+                  get().permissionPolicy === "always",
                 );
                 const idx = findLastStartIndex(tools, ev.summary);
                 const accepted: TranscriptTool = {
@@ -806,6 +809,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
     setAgentMode(mode) {
       set({ agentMode: mode });
+    },
+
+    setPermissionPolicy(policy) {
+      set({ permissionPolicy: policy });
     },
 
     async refreshAgentSessions() {

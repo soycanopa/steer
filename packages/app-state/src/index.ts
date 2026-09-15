@@ -14,6 +14,7 @@ export type {
 export type {
   AgentSlice,
   AgentStatus,
+  PermissionPolicy,
 } from "./agent";
 export { initialAgentSlice, pickDefaultModel } from "./agent";
 export type {

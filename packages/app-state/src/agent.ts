@@ -5,6 +5,9 @@ import type { AgentMode, AgentPort, AgentSessionSummary, ModelRef } from "@steer
 
 export type AgentStatus = "unknown" | "checking" | "up" | "down";
 
+/** Default = cada tool una vez; always = auto-aprobar. */
+export type PermissionPolicy = "default" | "always";
+
 export type AgentSlice = {
   /** Ports disponibles (composition root). El seleccionado es el primero. */
   agentPorts: AgentPort[];
@@ -14,6 +17,7 @@ export type AgentSlice = {
   selectedModel: ModelRef | null;
   /** Modo ask | plan | agent (build). */
   agentMode: AgentMode;
+  permissionPolicy: PermissionPolicy;
   /** Sesiones OpenCode del proyecto abierto (cache al abrir el picker). */
   agentSessions: AgentSessionSummary[];
   /** true mientras corre un startTurn. */
@@ -28,6 +32,7 @@ export function initialAgentSlice(agents: AgentPort[] = []): AgentSlice {
     agentModels: [],
     selectedModel: null,
     agentMode: "agent",
+    permissionPolicy: "default",
     agentSessions: [],
     agentBusy: false,
   };
