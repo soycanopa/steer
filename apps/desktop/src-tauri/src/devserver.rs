@@ -8,7 +8,6 @@ use std::fs;
 use std::path::Path;
 use std::process::Child;
 use std::sync::Mutex;
-use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
@@ -61,7 +60,7 @@ fn clear_state() {
 }
 
 #[tauri::command]
-pub fn project_dev_start(
+pub async fn project_dev_start(
     path: String,
     state: tauri::State<'_, DevServerMap>,
 ) -> Result<DevStartInfo, String> {
@@ -70,19 +69,21 @@ pub fn project_dev_start(
         return Err(format!("La carpeta no existe: {path}"));
     }
 
-    let mut map = state.lock().expect("devserver map poisoned");
-
     // 1. Ya lo arrancamos y sigue vivo (HTTP, no solo TCP).
-    if let Some(dev) = map.get(&path) {
-        let url = process::normalize_upstream_url(&dev.url);
-        if process::upstream_http_ready(&url) {
+    let cached_url = state
+        .lock()
+        .expect("devserver map poisoned")
+        .get(&path)
+        .map(|dev| dev.url.clone());
+    if let Some(cached) = cached_url {
+        if let Some(url) = crate::upstream_probe::resolve(&cached).await {
             return Ok(DevStartInfo {
                 url,
                 spawned: false,
             });
         }
         // Proceso muerto pero entrada en mapa: limpiar y reintentar spawn.
-        map.remove(&path);
+        state.lock().expect("devserver map poisoned").remove(&path);
         clear_state();
     }
 
@@ -92,18 +93,18 @@ pub fn project_dev_start(
     match read_state() {
         Some((state_path, pgid)) => {
             if state_path == path {
-                if let Some(url) = probe_convention_port() {
+                if let Some(url) = probe_convention_port().await {
                     return Ok(DevStartInfo { url, spawned: false });
                 }
                 clear_state(); // server ya muerto
-            } else if probe_convention_port().is_some() {
+            } else if probe_convention_port().await.is_some() {
                 process::kill_pgid(pgid);
                 clear_state();
             }
         }
         None => {
             // Sin estado propio: dev server ajeno en :3000 → TRD §4.1.4 reutilizar.
-            if let Some(url) = probe_convention_port() {
+            if let Some(url) = probe_convention_port().await {
                 return Ok(DevStartInfo { url, spawned: false });
             }
         }
@@ -133,7 +134,6 @@ pub fn project_dev_start(
     // 5. Esperar URL del stdout o convención :3000, con health-check (30s).
     let deadline = Instant::now() + Duration::from_secs(30);
     let mut url: Option<String> = None;
-    drop(map); // no sostener el lock durante el wait
 
     while Instant::now() < deadline {
         // El proceso murió antes de servir: reportar cola de logs.
@@ -143,14 +143,13 @@ pub fn project_dev_start(
                 "El dev server murió al arrancar ({status}). Últimas líneas:\n{tail}"
             ));
         }
-        if let Some(found) = url_from_logs(&logs).or_else(probe_convention_port) {
-            let ready = process::normalize_upstream_url(&found);
-            if process::upstream_http_ready(&ready) {
+        if let Some(found) = url_from_logs(&logs).or_else(|| probe_convention_port_sync()) {
+            if let Some(ready) = crate::upstream_probe::resolve(&found).await {
                 url = Some(ready);
                 break;
             }
         }
-        thread::sleep(Duration::from_millis(400));
+        tokio::time::sleep(Duration::from_millis(400)).await;
     }
 
     match url {
@@ -207,7 +206,7 @@ fn extract_local_url(line: &str) -> Option<String> {
         let candidate = rest[..end].trim_end_matches('/');
         // Validar que haya puerto.
         if port_of(candidate) > 0 {
-            return Some(process::normalize_upstream_url(candidate));
+            return Some(candidate.to_string());
         }
     }
     None
@@ -220,10 +219,12 @@ fn port_of(url: &str) -> u16 {
         .unwrap_or(0)
 }
 
-fn probe_convention_port() -> Option<String> {
-    // Convención del prototipo: TanStack Start dev en :3000.
-    let url = "http://127.0.0.1:3000";
-    process::upstream_http_ready(url).then(|| url.to_string())
+fn probe_convention_port_sync() -> Option<String> {
+    crate::upstream_probe::resolve_blocking("http://localhost:3000")
+}
+
+async fn probe_convention_port() -> Option<String> {
+    crate::upstream_probe::resolve("http://localhost:3000").await
 }
 
 #[cfg(test)]
@@ -234,7 +235,7 @@ mod tests {
     fn extrae_url_de_linea_vite() {
         assert_eq!(
             extract_local_url("  ➜  Local:   http://localhost:3000/"),
-            Some("http://127.0.0.1:3000".to_string())
+            Some("http://localhost:3000".to_string())
         );
         assert_eq!(
             extract_local_url("Local: http://127.0.0.1:5173/ (_ready)"),
