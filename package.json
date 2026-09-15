@@ -6,10 +6,17 @@
   "scripts": {
     "dev": "pnpm --filter @steer/desktop tauri dev",
     "build": "pnpm -r build",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "happy-path": "tsx scripts/happy-path.mts"
   },
   "packageManager": "pnpm@12.4.1",
   "engines": {
     "node": ">=22"
+  },
+  "devDependencies": {
+    "@steer/agent-opencode": "workspace:*",
+    "@steer/domain": "workspace:*",
+    "@steer/ports": "workspace:*",
+    "tsx": "^4.21.0"
   }
 }
