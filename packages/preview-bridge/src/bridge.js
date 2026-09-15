@@ -563,10 +563,84 @@
     return z + depth;
   }
 
-  function capturePreview() {
+  // Las imágenes cross-origin sin `crossorigin` taintan el canvas y
+  // `toDataURL` lanza "The operation is insecure.". Las recargamos con CORS
+  // (si el server lo permite) y cacheamos; las que no, se omiten.
+  var captureImageCache = {};
+
+  function captureSrc(img) {
+    return img.currentSrc || img.src || "";
+  }
+
+  function captureNeedsCors(src) {
+    if (!src || src.indexOf("data:") === 0 || src.indexOf("blob:") === 0) {
+      return false;
+    }
     try {
-      var w = Math.max(1, Math.round(window.innerWidth || 800));
-      var h = Math.max(1, Math.round(window.innerHeight || 600));
+      return new URL(src, location.href).origin !== location.origin;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function loadCaptureImage(src) {
+    if (Object.prototype.hasOwnProperty.call(captureImageCache, src)) {
+      return Promise.resolve(captureImageCache[src]);
+    }
+    return new Promise(function (resolve) {
+      var img = document.createElement("img");
+      img.crossOrigin = "anonymous";
+      img.onload = function () {
+        captureImageCache[src] = img;
+        resolve(img);
+      };
+      img.onerror = function () {
+        captureImageCache[src] = null;
+        resolve(null);
+      };
+      img.src = src;
+    });
+  }
+
+  function captureDrawable(img) {
+    var src = captureSrc(img);
+    if (!captureNeedsCors(src)) return img;
+    return captureImageCache[src] || null; // null → no cargó con CORS
+  }
+
+  function preloadCaptureImages() {
+    var imgs = document.body.getElementsByTagName("img");
+    var pending = [];
+    for (var i = 0; i < imgs.length; i++) {
+      var src = captureSrc(imgs[i]);
+      if (
+        src &&
+        captureNeedsCors(src) &&
+        !Object.prototype.hasOwnProperty.call(captureImageCache, src)
+      ) {
+        pending.push(loadCaptureImage(src));
+      }
+    }
+    return Promise.all(pending);
+  }
+
+  async function capturePreview(region) {
+    try {
+      await preloadCaptureImages();
+      var fullW = Math.max(1, Math.round(window.innerWidth || 800));
+      var fullH = Math.max(1, Math.round(window.innerHeight || 600));
+      var vx = 0;
+      var vy = 0;
+      var vw = fullW;
+      var vh = fullH;
+      if (region && region.width >= 2 && region.height >= 2) {
+        vx = Math.max(0, Math.round(region.left));
+        vy = Math.max(0, Math.round(region.top));
+        vw = Math.max(1, Math.min(fullW - vx, Math.round(region.width)));
+        vh = Math.max(1, Math.min(fullH - vy, Math.round(region.height)));
+      }
+      var w = vw;
+      var h = vh;
       var maxEdge = 1600;
       var scale = Math.max(w, h) > maxEdge ? maxEdge / Math.max(w, h) : 1;
       scale *= Math.min(2, window.devicePixelRatio || 1);
@@ -576,10 +650,11 @@
       var ctx = canvas.getContext("2d");
       if (!ctx) throw new Error("sin canvas 2d");
       ctx.scale(scale, scale);
+      ctx.translate(-vx, -vy);
 
       var rootBg = window.getComputedStyle(document.body).backgroundColor;
       ctx.fillStyle = captureTransparent(rootBg) ? "#ffffff" : rootBg;
-      ctx.fillRect(0, 0, w, h);
+      ctx.fillRect(vx, vy, vw, vh);
 
       var raw = document.body.getElementsByTagName("*");
       var list = [document.documentElement, document.body];
@@ -597,7 +672,9 @@
         if (op === 0) continue;
         var r = el.getBoundingClientRect();
         if (r.width < 0.5 || r.height < 0.5) continue;
-        if (r.bottom < 0 || r.right < 0 || r.top > h || r.left > w) continue;
+        if (r.bottom < vy || r.right < vx || r.top > vy + vh || r.left > vx + vw) {
+          continue;
+        }
 
         ctx.save();
         ctx.globalAlpha = isNaN(op) ? 1 : op;
@@ -623,10 +700,19 @@
 
         var tag = el.tagName.toLowerCase();
         if (tag === "img" && el.naturalWidth) {
-          try {
-            ctx.drawImage(el, r.left, r.top, r.width, r.height);
-          } catch (_) {
-            /* imagen CORS */
+          var drawable = captureDrawable(el);
+          if (drawable) {
+            try {
+              ctx.drawImage(
+                drawable,
+                r.left,
+                r.top,
+                r.width,
+                r.height,
+              );
+            } catch (_) {
+              /* imagen CORS */
+            }
           }
         }
         if (tag === "canvas") {
@@ -664,7 +750,12 @@
         var remaining = text.replace(/\s+/g, " ");
         for (var ri = 0; ri < rects.length; ri++) {
           var box = rects[ri];
-          if (box.bottom < 0 || box.top > h || box.right < 0 || box.left > w) {
+          if (
+            box.bottom < vy ||
+            box.top > vy + vh ||
+            box.right < vx ||
+            box.left > vx + vw
+          ) {
             continue;
           }
           var slice = remaining;
@@ -685,17 +776,128 @@
         ctx.restore();
       }
 
-      send({
-        type: "steer:captured",
-        mime: "image/png",
-        dataUrl: canvas.toDataURL("image/png"),
-      });
+      var dataUrl;
+      try {
+        dataUrl = canvas.toDataURL("image/png");
+      } catch (_taint) {
+        send({
+          type: "steer:capture-error",
+          message:
+            "El preview incluye contenido de otro origen sin CORS que bloquea la captura.",
+        });
+        return;
+      }
+      send({ type: "steer:captured", mime: "image/png", dataUrl: dataUrl });
     } catch (err) {
       send({
         type: "steer:capture-error",
         message: err && err.message ? err.message : String(err),
       });
     }
+  }
+
+  // ---- Selección de área de captura ----
+  // Click cámara → overlay; click simple = viewport completo; drag = región;
+  // Esc cancela.
+  var captureOverlay = null;
+  var captureRectEl = null;
+  var captureStart = null;
+
+  function onCaptureKey(e) {
+    if (e.key === "Escape") {
+      e.preventDefault();
+      removeCaptureOverlay();
+    }
+  }
+
+  function removeCaptureOverlay() {
+    if (captureOverlay && captureOverlay.parentNode) {
+      captureOverlay.parentNode.removeChild(captureOverlay);
+    }
+    captureOverlay = null;
+    captureRectEl = null;
+    captureStart = null;
+    document.removeEventListener("keydown", onCaptureKey, true);
+  }
+
+  function updateCaptureRect(x, y) {
+    if (!captureStart || !captureRectEl) return;
+    var left = Math.min(captureStart.x, x);
+    var top = Math.min(captureStart.y, y);
+    captureRectEl.style.left = left + "px";
+    captureRectEl.style.top = top + "px";
+    captureRectEl.style.width = Math.abs(x - captureStart.x) + "px";
+    captureRectEl.style.height = Math.abs(y - captureStart.y) + "px";
+  }
+
+  function onCaptureMove(e) {
+    if (!captureStart) return;
+    e.preventDefault();
+    updateCaptureRect(e.clientX, e.clientY);
+  }
+
+  function onCaptureDown(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    captureStart = { x: e.clientX, y: e.clientY };
+    if (captureRectEl) captureRectEl.style.display = "block";
+    updateCaptureRect(e.clientX, e.clientY);
+  }
+
+  function onCaptureUp(e) {
+    if (!captureStart) return;
+    e.preventDefault();
+    e.stopPropagation();
+    var start = captureStart;
+    var left = Math.min(start.x, e.clientX);
+    var top = Math.min(start.y, e.clientY);
+    var w = Math.abs(e.clientX - start.x);
+    var h = Math.abs(e.clientY - start.y);
+    var region =
+      w >= 8 && h >= 8
+        ? { left: left, top: top, width: w, height: h }
+        : null;
+    removeCaptureOverlay();
+    capturePreview(region);
+  }
+
+  function beginCaptureSelection() {
+    if (captureOverlay) {
+      removeCaptureOverlay();
+      return;
+    }
+    var ov = document.createElement("div");
+    ov.setAttribute("data-steer-overlay", "");
+    ov.style.cssText =
+      "position:fixed;inset:0;z-index:2147483647;cursor:crosshair;" +
+      "user-select:none;-webkit-user-select:none;";
+    var hint = document.createElement("div");
+    hint.setAttribute("data-steer-overlay", "");
+    hint.textContent =
+      "Arrastra para recortar · click = pantalla completa · Esc cancela";
+    hint.style.cssText =
+      "position:absolute;top:12px;left:50%;transform:translateX(-50%);" +
+      "font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff;" +
+      "background:rgba(10,12,16,0.85);padding:4px 10px;border-radius:9999px;" +
+      "white-space:nowrap;pointer-events:none;";
+    var rect = document.createElement("div");
+    rect.setAttribute("data-steer-overlay", "");
+    rect.style.cssText =
+      "position:absolute;display:none;pointer-events:none;" +
+      "border:2px solid " +
+      ACCENT +
+      ";background:transparent;" +
+      "box-shadow:0 0 0 9999px rgba(10,12,16,0.35);";
+    ov.appendChild(hint);
+    ov.appendChild(rect);
+    document.body.appendChild(ov);
+    captureOverlay = ov;
+    captureRectEl = rect;
+    captureStart = null;
+    ov.addEventListener("mousedown", onCaptureDown, true);
+    ov.addEventListener("mousemove", onCaptureMove, true);
+    ov.addEventListener("mouseup", onCaptureUp, true);
+    document.addEventListener("keydown", onCaptureKey, true);
   }
 
   function setInspect(on) {
@@ -1188,7 +1390,7 @@
         clearPins();
         break;
       case "steer:capture":
-        capturePreview();
+        beginCaptureSelection();
         break;
       case "steer:request-tree":
         pushTree();
