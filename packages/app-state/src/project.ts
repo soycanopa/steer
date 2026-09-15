@@ -2,7 +2,12 @@ import type { ProjectMeta, ProjectRoute } from "@steer/ports";
 
 // projectSlice → ProjectPort (ARCHITECTURE §9). Habla con el puerto,
 // no con una implementación.
-export type ProjectStatus = "empty" | "opening" | "open" | "error";
+export type ProjectStatus = "empty" | "creating" | "opening" | "open" | "error";
+
+export type CreateProgressState = {
+  percent: number;
+  message: string;
+};
 
 export type ProjectSlice = {
   projectStatus: ProjectStatus;
@@ -11,4 +16,8 @@ export type ProjectSlice = {
   lastProject: string | null;
   /** Rutas de `src/routes` (TanStack Start). */
   projectRoutes: ProjectRoute[];
+  /** Proyectos abiertos en tabs (orden de apertura). */
+  openProjectTabs: string[];
+  /** Progreso del scaffold TanStack Start (null si no está creando). */
+  createProgress: CreateProgressState | null;
 };

@@ -26,6 +26,13 @@ import type {
   SessionId,
 } from "@steer/ports";
 import type { ProjectSlice } from "./project";
+import {
+  cacheWorkspace,
+  deleteWorkspace,
+  restoreWorkspace,
+  snapshotWorkspace,
+  type WorkspaceSnapshot,
+} from "./workspaces";
 import type { PreviewMode, TweakDraft } from "./selection";
 import { findTweak, initialSelectionSlice, type SelectionSlice } from "./selection";
 import { initialPreviewSlice, type PreviewSlice } from "./preview";
@@ -47,9 +54,27 @@ import {
 
 // Persistencia de prefs vía host (TRD §2). El adapter real vive en
 // apps/desktop/src/tauri/prefs.ts; app-state no conoce Tauri.
+export type AgentPrefs = {
+  providerId: string | null;
+  modelId: string | null;
+  reasoningEffort: ReasoningEffort | null;
+};
+
 export type PrefsApi = {
   getLastProject(): Promise<string | null>;
   setLastProject(path: string): Promise<void>;
+  getOpenProjectTabs(): Promise<string[]>;
+  setOpenProjectTabs(tabs: string[]): Promise<void>;
+  getProjectWorkspace(projectRoot: string): Promise<WorkspaceSnapshot | null>;
+  setProjectWorkspace(
+    projectRoot: string,
+    workspace: WorkspaceSnapshot,
+  ): Promise<void>;
+  deleteProjectWorkspace(projectRoot: string): Promise<void>;
+  getAgentPrefs(): Promise<AgentPrefs>;
+  setAgentPrefs(prefs: AgentPrefs): Promise<void>;
+  getLastAgentSession(projectRoot: string): Promise<string | null>;
+  setLastAgentSession(projectRoot: string, sessionId: string): Promise<void>;
 };
 
 export type AppDeps = {
@@ -66,9 +91,23 @@ export type SteerState = ProjectSlice &
   IntentsSlice &
   AgentSlice & {
     bootstrap(): Promise<void>;
+    /** Alinea tabs y proyecto activo con prefs (también tras HMR en dev). */
+    syncPersistedWorkspace(): Promise<void>;
     /** Guarda el proyecto actual en prefs (p. ej. antes de cerrar la app). */
     persistLastProject(): Promise<void>;
+    /** P0-01: scaffold TanStack Start vía CLI del host. */
+    createStartProject(parentDir: string, name: string): Promise<void>;
     openProject(path: string): Promise<void>;
+    /** Abre o enfoca un proyecto en un tab nuevo sin cerrar los demás. */
+    openProjectInNewTab(path: string): Promise<void>;
+    /** Cambia al tab de un proyecto ya abierto. */
+    switchProjectTab(path: string): Promise<void>;
+    /** Cierra un tab de proyecto y apaga su dev server. */
+    closeProjectTab(path: string): Promise<void>;
+    /** Cierra el proyecto activo y apaga preview/dev. */
+    closeProject(): Promise<void>;
+    /** Apaga solo el proxy del preview (el dev server sigue vivo). */
+    detachPreview(): Promise<void>;
     startPreview(): Promise<void>;
     stopPreview(): Promise<void>;
     reloadPreview(): void;
@@ -115,6 +154,12 @@ export type SteerState = ProjectSlice &
     refreshAgentSessions(): Promise<void>;
     /** Une la sesión de chat local con una sesión OpenCode existente. */
     bindAgentSession(agentSessionId: SessionId): void;
+    /** Abre una sesión OpenCode: enlaza y activa una conversación local. */
+    openAgentSession(agentSessionId: SessionId, title?: string): void;
+    /** Elimina una conversación local de Steer. */
+    deleteLocalSession(id: string): void;
+    /** Elimina una sesión OpenCode del proyecto. */
+    deleteAgentSession(sessionId: SessionId): Promise<void>;
     /** UX §5.6: Vaciar cola. */
     clearQueue(): void;
     setDraftNote(text: string): void;
@@ -126,6 +171,10 @@ export type SteerState = ProjectSlice &
     selectLayer(id: string): void;
     /** Navega el preview a otra ruta (p. ej. desde el panel de páginas). */
     navigatePreview(path: string): void;
+    /** Relee `src/routes` del proyecto abierto y alinea previewPath. */
+    refreshProjectRoutes(): Promise<void>;
+    /** Responde una pregunta del agente (OpenCode question API). */
+    answerQuestion(blockId: string, answers: string[][]): Promise<void>;
     /** Historial: crear sesión nueva y activarla. */
     newSession(): void;
     selectSession(id: string): void;
@@ -216,9 +265,93 @@ function queueHasMissingSource(queue: Intent[]): boolean {
   );
 }
 
+function captureCurrentWorkspace(
+  get: () => SteerState,
+  onCaptured?: (root: string) => void,
+): void {
+  const root = get().projectMeta?.root;
+  if (root == null) return;
+  snapshotWorkspace(root, get());
+  onCaptured?.(root);
+}
+
+function applyWorkspaceSnapshot(
+  set: (
+    partial:
+      | Partial<SteerState>
+      | ((state: SteerState) => Partial<SteerState>),
+  ) => void,
+  snap: WorkspaceSnapshot,
+): void {
+  set({
+    projectStatus: "open",
+    projectMeta: snap.meta,
+    projectError: null,
+    lastProject: snap.meta.root,
+    projectRoutes: snap.projectRoutes,
+    ...snap.preview,
+    previewUrl: null,
+    previewStatus: "starting",
+    previewError: null,
+    ...snap.selection,
+    ...snap.intents,
+    tree: null,
+    agentSessions: snap.agentSessions,
+  });
+}
+
 export function createAppStore({ projectPort, previewPort, prefs, agents }: AppDeps) {
   const primaryAgent = agents[0] ?? null;
   let bootstrapRun: Promise<void> | null = null;
+  let savedAgentPrefs: AgentPrefs | null = null;
+  let previewStartTask: Promise<void> | null = null;
+  let agentTurnInFlight = false;
+  let treeRequestTimers: ReturnType<typeof setTimeout>[] = [];
+
+  function clearTreeRequestTimers(): void {
+    for (const t of treeRequestTimers) clearTimeout(t);
+    treeRequestTimers = [];
+  }
+
+  function scheduleTreeRequests(): void {
+    clearTreeRequestTimers();
+    previewPort.requestTree();
+    for (const delay of [1500, 4000, 9000]) {
+      treeRequestTimers.push(
+        setTimeout(() => {
+          if (store.getState().previewStatus === "live") {
+            previewPort.requestTree();
+          }
+        }, delay),
+      );
+    }
+    treeRequestTimers.push(
+      setTimeout(() => {
+        if (
+          store.getState().previewStatus === "live" &&
+          store.getState().tree === null
+        ) {
+          store.setState({ tree: [] });
+        }
+      }, 16000),
+    );
+  }
+
+  function modelFromPrefs(
+    models: ModelRef[],
+    agentPrefs: AgentPrefs | null,
+  ): ModelRef | null {
+    if (agentPrefs?.providerId == null || agentPrefs.modelId == null) {
+      return null;
+    }
+    return (
+      models.find(
+        (m) =>
+          m.providerId === agentPrefs.providerId &&
+          m.modelId === agentPrefs.modelId,
+      ) ?? null
+    );
+  }
 
   /** Actualiza un bloque `agent` streaming en la sesión activa. */
   function patchAgentBlock(
@@ -233,12 +366,18 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     setAgentBlock(store, blockId, patch);
   }
 
+  let persistWorkspacePrefs: () => Promise<void>;
+  let persistProjectWorkspace: (root: string) => Promise<void>;
+  let schedulePersistProjectWorkspace: (root: string) => void;
+
   const store = createStore<SteerState>()((set, get) => ({
     projectStatus: "empty",
     projectMeta: null,
     projectError: null,
     lastProject: null,
     projectRoutes: [],
+    openProjectTabs: [],
+    createProgress: null,
     ...initialPreviewSlice,
     ...initialSelectionSlice,
     ...initialIntents(),
@@ -247,14 +386,17 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     async bootstrap() {
       if (bootstrapRun !== null) return bootstrapRun;
       bootstrapRun = (async () => {
-        const lastProject = await prefs.getLastProject();
-        set({ lastProject });
+        const agentPrefs = await prefs.getAgentPrefs();
+        savedAgentPrefs = agentPrefs;
+        if (
+          agentPrefs.reasoningEffort === "low" ||
+          agentPrefs.reasoningEffort === "high" ||
+          agentPrefs.reasoningEffort === "max"
+        ) {
+          set({ reasoningEffort: agentPrefs.reasoningEffort });
+        }
 
-        // Reabrir el proyecto sin esperar a OpenCode (ensure puede tardar ~30s).
-        const openTask =
-          lastProject != null && get().projectStatus === "empty"
-            ? get().openProject(lastProject)
-            : Promise.resolve();
+        await get().syncPersistedWorkspace();
 
         void (async () => {
           await get().refreshAgent();
@@ -266,23 +408,127 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             }
           }
         })();
-
-        await openTask;
       })();
       return bootstrapRun;
     },
 
-    async persistLastProject() {
-      const path = get().projectMeta?.root ?? get().lastProject;
-      if (path === null || path === "") return;
-      await prefs.setLastProject(path);
+    async syncPersistedWorkspace() {
+      const [lastProject, savedTabs] = await Promise.all([
+        prefs.getLastProject(),
+        prefs.getOpenProjectTabs(),
+      ]);
+      const activeProject =
+        lastProject != null &&
+        (savedTabs.length === 0 || savedTabs.includes(lastProject))
+          ? lastProject
+          : savedTabs[savedTabs.length - 1] ?? lastProject;
+
+      set({
+        lastProject: activeProject,
+        ...(savedTabs.length > 0 ? { openProjectTabs: savedTabs } : {}),
+      });
+
+      if (activeProject == null) return;
+
+      const current = get().projectMeta?.root;
+      if (get().projectStatus === "empty" || current !== activeProject) {
+        await get().openProject(activeProject);
+      }
     },
 
-    async openProject(path) {
-      // Si había un dev server corriendo de otro proyecto, pararlo.
-      const { previewStatus, previewUrl } = get();
-      if (previewStatus !== "idle" && previewUrl !== null) {
-        await get().stopPreview();
+    async persistLastProject() {
+      await persistWorkspacePrefs();
+    },
+
+    async createStartProject(parentDir, name) {
+      set({
+        projectStatus: "creating",
+        projectError: null,
+        createProgress: { percent: 0, message: "Iniciando…" },
+      });
+      try {
+        const meta = await projectPort.createStart(parentDir, name, (progress) => {
+          set({ createProgress: progress });
+        });
+        set({ createProgress: { percent: 100, message: "Listo" } });
+        await get().openProjectInNewTab(meta.root);
+        await get().persistLastProject();
+        set({ createProgress: null });
+      } catch (err) {
+        set({
+          projectStatus: "error",
+          projectError: err instanceof Error ? err.message : String(err),
+          createProgress: null,
+        });
+      }
+    },
+
+    async closeProject() {
+      const root = get().projectMeta?.root;
+      if (root != null) {
+        await get().closeProjectTab(root);
+        return;
+      }
+      await get().detachPreview();
+      set({
+        projectStatus: "empty",
+        projectMeta: null,
+        projectError: null,
+        projectRoutes: [],
+        openProjectTabs: [],
+        agentSessions: [],
+      });
+    },
+
+    async detachPreview() {
+      try {
+        await projectPort.detachPreview();
+      } catch {
+        // detach es best-effort al cambiar de tab.
+      }
+      set((s) => ({
+        previewUrl: null,
+        tree: null,
+        previewStatus: s.previewStatus === "down" ? "down" : "idle",
+      }));
+    },
+
+    async openProjectInNewTab(path) {
+      const current = get().projectMeta?.root;
+      if (current != null && current !== path) {
+        captureCurrentWorkspace(get, (root) => schedulePersistProjectWorkspace(root));
+        await get().detachPreview();
+        set({
+          projectMeta: null,
+          projectStatus: "opening",
+          projectRoutes: [],
+        });
+      }
+
+      set({ lastProject: path });
+      const tabs = get().openProjectTabs;
+      if (!tabs.includes(path)) {
+        set({ openProjectTabs: [...tabs, path] });
+      }
+      void persistWorkspacePrefs();
+
+      let snap = restoreWorkspace(path);
+      if (snap == null) {
+        snap = await prefs.getProjectWorkspace(path);
+        if (snap != null) {
+          cacheWorkspace(snap);
+        }
+      }
+      if (snap != null) {
+        applyWorkspaceSnapshot(set, snap);
+        await get().refreshProjectRoutes();
+        await get().startPreview();
+        void persistWorkspacePrefs();
+        void get().refreshAgent();
+        void get()
+          .refreshAgentSessions()
+          .then(() => restoreAgentSessionForProject(path));
+        return;
       }
 
       set({
@@ -295,8 +541,14 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         ...initialIntents(),
       });
       try {
-        const meta: ProjectMeta = await projectPort.open(path);
-        // "starting" ya en este set: sin flash de estado idle (UX §5.2).
+        let meta: ProjectMeta = await projectPort.open(path);
+        if (!meta.hasDevtoolsVite) {
+          try {
+            meta = await projectPort.ensureDevtools(path);
+          } catch {
+            // El proyecto abre igual; el inspector mostrará el CTA de Devtools.
+          }
+        }
         const routes = await projectPort.listRoutes(path);
         set({
           projectStatus: "open",
@@ -306,13 +558,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           previewStatus: "starting",
           previewError: null,
         });
-        await prefs.setLastProject(path);
-        // UX.md §5.2: abierto → arrancar o reusar dev server.
-        void get().startPreview();
-        // Re-probar OpenCode (ensure + health) al cambiar de proyecto.
+        await get().refreshProjectRoutes();
+        await get().startPreview();
+        void persistWorkspacePrefs();
         void get().refreshAgent();
-        // Sesiones OpenCode del directorio (picker del chat).
-        void get().refreshAgentSessions();
+        void get()
+          .refreshAgentSessions()
+          .then(() => restoreAgentSessionForProject(path));
       } catch (err) {
         set({
           projectStatus: "error",
@@ -322,22 +574,128 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       }
     },
 
+    async switchProjectTab(path) {
+      const { projectMeta, projectStatus, previewStatus } = get();
+      if (
+        projectMeta?.root === path &&
+        projectStatus === "open" &&
+        (previewStatus === "live" || previewStatus === "starting")
+      ) {
+        return;
+      }
+      if (projectMeta?.root === path && projectStatus === "open") {
+        await get().startPreview();
+        return;
+      }
+      await get().openProjectInNewTab(path);
+    },
+
+    async closeProjectTab(path) {
+      const tabs = get().openProjectTabs.filter((tab) => tab !== path);
+      deleteWorkspace(path);
+      void prefs.deleteProjectWorkspace(path);
+      try {
+        await projectPort.stopDev(path);
+      } catch {
+        // best-effort al cerrar tab.
+      }
+
+      if (get().projectMeta?.root === path) {
+        await get().detachPreview();
+        if (tabs.length > 0) {
+          const next = tabs[tabs.length - 1]!;
+          set({
+            openProjectTabs: tabs,
+            projectStatus: "empty",
+            projectMeta: null,
+            projectError: null,
+            projectRoutes: [],
+            agentSessions: [],
+            ...initialPreviewSlice,
+            ...initialSelectionSlice,
+            ...initialIntents(),
+          });
+          await get().openProjectInNewTab(next);
+          return;
+        }
+        set({
+          openProjectTabs: [],
+          projectStatus: "empty",
+          projectMeta: null,
+          projectError: null,
+          projectRoutes: [],
+          agentSessions: [],
+          ...initialPreviewSlice,
+          ...initialSelectionSlice,
+          ...initialIntents(),
+        });
+        void persistWorkspacePrefs();
+        return;
+      }
+
+      set({ openProjectTabs: tabs });
+      void persistWorkspacePrefs();
+    },
+
+    async openProject(path) {
+      await get().openProjectInNewTab(path);
+    },
+
     async startPreview() {
       const meta = get().projectMeta;
       if (meta === null) {
         return;
       }
-      set({ previewStatus: "starting", previewError: null });
+      const root = meta.root;
+
+      if (previewStartTask !== null) {
+        await previewStartTask;
+        if (
+          get().previewStatus === "live" &&
+          get().projectMeta?.root === root &&
+          get().previewUrl != null
+        ) {
+          return;
+        }
+      }
+
+      if (get().projectMeta?.root !== root) {
+        return;
+      }
+
+      const previewPath = get().previewPath;
+      previewStartTask = (async () => {
+        set({ previewStatus: "starting", previewError: null });
+        try {
+          const { url } = await projectPort.startDev(root);
+          if (get().projectMeta?.root !== root) {
+            return;
+          }
+          set({
+            previewStatus: "live",
+            previewUrl: url,
+            previewPath,
+          });
+          set({ tree: null });
+          scheduleTreeRequests();
+        } catch (err) {
+          if (get().projectMeta?.root !== root) {
+            return;
+          }
+          clearTreeRequestTimers();
+          set({
+            previewStatus: "down",
+            previewError: err instanceof Error ? err.message : String(err),
+            previewUrl: null,
+            tree: null,
+          });
+        }
+      })();
+
       try {
-        const { url } = await projectPort.startDev(meta.root);
-        set({ previewStatus: "live", previewUrl: url, previewPath: "/" });
-        previewPort.requestTree();
-      } catch (err) {
-        set({
-          previewStatus: "down",
-          previewError: err instanceof Error ? err.message : String(err),
-          previewUrl: null,
-        });
+        await previewStartTask;
+      } finally {
+        previewStartTask = null;
       }
     },
 
@@ -360,7 +718,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     reloadPreview() {
       set((state) => ({
         reloadNonce: state.reloadNonce + 1,
+        tree: null,
       }));
+      scheduleTreeRequests();
     },
 
     setMode(mode) {
@@ -617,7 +977,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         agentBusy,
         selectedModel,
       } = get();
-      if (agentBusy) return;
+      if (agentTurnInFlight || agentBusy) return;
       const note = draftNote.trim();
       if (queue.length === 0 && draftAttachments.length === 0 && note === "") {
         return;
@@ -707,6 +1067,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         status: "streaming",
       });
 
+      agentTurnInFlight = true;
+
       // TRD §5: la cola no se vacía hasta done con éxito. Doble apply: agentBusy.
       // El composer se limpia al enviar; la cola de intents se conserva hasta done.
       set({
@@ -731,8 +1093,44 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       let text = "";
       let reasoning = "";
       let liveSessionId: SessionId | null = sessionId;
+      let awaitingQuestion = false;
+
+      // Los deltas de OpenCode llegan por token. Re-renderizar por cada uno
+      // satura el main thread (markdown de todo el transcript) y la UI se
+      // congela. Coalescemos a una actualización por frame.
+      let streamFlush: ReturnType<typeof setTimeout> | null = null;
+      const flushStream = (): void => {
+        streamFlush = null;
+        patchAgentBlock(agentBlockId, { text, reasoning });
+      };
+      const scheduleStreamFlush = (): void => {
+        if (streamFlush !== null) return;
+        if (typeof requestAnimationFrame === "function") {
+          streamFlush = requestAnimationFrame(
+            flushStream,
+          ) as unknown as ReturnType<typeof setTimeout>;
+        } else {
+          streamFlush = setTimeout(flushStream, 16);
+        }
+      };
+      const cancelStreamFlush = (): void => {
+        if (streamFlush === null) return;
+        if (typeof requestAnimationFrame === "function") {
+          cancelAnimationFrame(streamFlush as unknown as number);
+        } else {
+          clearTimeout(streamFlush);
+        }
+        streamFlush = null;
+      };
+      /** Vuelca lo pendiente ahora (antes de tool/done/error). */
+      const flushStreamNow = (): void => {
+        if (streamFlush === null) return;
+        cancelStreamFlush();
+        patchAgentBlock(agentBlockId, { text, reasoning });
+      };
 
       const succeed = (): void => {
+        cancelStreamFlush();
         for (const i of queue) {
           if (i.kind === "comment") previewPort.removePin(i.id);
         }
@@ -741,14 +1139,21 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           status: "done",
           text,
           reasoning,
+          tools: [...tools],
         });
+        const root = get().projectMeta?.root;
+        if (root != null) {
+          captureCurrentWorkspace(get, (r) => schedulePersistProjectWorkspace(r));
+        }
         const { previewStatus } = get();
         const agentChangedProject =
           payload.intents.length > 0 ||
           tools.some((t) => t.status === "end");
         if (previewStatus === "live" && agentChangedProject) {
           get().reloadPreview();
+          scheduleTreeRequests();
         }
+        void get().refreshProjectRoutes();
         set({
           agentBusy: false,
           queue: get().queue.filter((i) => !sentIds.has(i.id)),
@@ -794,16 +1199,20 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                     : { ...sess, agentSessionId: ev.sessionId },
                 ),
               }));
+              if (payload.projectRoot !== "") {
+                void prefs.setLastAgentSession(payload.projectRoot, ev.sessionId);
+              }
               break;
             case "text-delta":
               text += ev.text;
-              patchAgentBlock(agentBlockId, { text });
+              scheduleStreamFlush();
               break;
             case "reasoning-delta":
               reasoning += ev.text;
-              patchAgentBlock(agentBlockId, { reasoning });
+              scheduleStreamFlush();
               break;
             case "tool": {
+              flushStreamNow();
               if (ev.status === "start") {
                 tools.push({
                   id: ev.id,
@@ -825,7 +1234,54 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               patchAgentBlock(agentBlockId, { tools: [...tools] });
               break;
             }
+            case "question": {
+              flushStreamNow();
+              awaitingQuestion = true;
+              const [first] = ev.questions;
+              if (first == null) break;
+              const prompt =
+                ev.questions.length === 1
+                  ? first.prompt
+                  : ev.questions
+                      .map((q, i) => `${i + 1}. ${q.prompt}`)
+                      .join("\n");
+              const options = first.options;
+              set((s) => ({
+                agentBusy: false,
+                sessions: s.sessions.map((sess) =>
+                  sess.id !== s.activeSessionId
+                    ? sess
+                    : {
+                        ...sess,
+                        blocks: sess.blocks.some(
+                          (b) =>
+                            b.kind === "question" &&
+                            b.questionId === ev.questionId &&
+                            b.status === "pending",
+                        )
+                          ? sess.blocks
+                          : [
+                              ...sess.blocks,
+                              {
+                                kind: "question" as const,
+                                id: crypto.randomUUID(),
+                                questionId: ev.questionId,
+                                prompt,
+                                options,
+                                questions: ev.questions.map((q) => ({
+                                  prompt: q.prompt,
+                                  options: q.options,
+                                })),
+                                status: "pending" as const,
+                              },
+                            ],
+                      },
+                ),
+              }));
+              break;
+            }
             case "permission": {
+              flushStreamNow();
               tools.push({
                 name: ev.summary,
                 status: "start",
@@ -872,10 +1328,21 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               }
               break;
             }
-            case "done":
+            case "done": {
+              if (awaitingQuestion) {
+                const pendingQuestion = get()
+                  .sessions.find((s) => s.id === get().activeSessionId)
+                  ?.blocks.some(
+                    (b) => b.kind === "question" && b.status === "pending",
+                  );
+                if (pendingQuestion === true) break;
+                awaitingQuestion = false;
+              }
               succeed();
               return;
+            }
             case "error":
+              cancelStreamFlush();
               patchAgentBlock(agentBlockId, {
                 status: "error",
                 text: text === "" ? ev.message : `${text}\n\n${ev.message}`,
@@ -886,14 +1353,21 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               break;
           }
         }
-        succeed();
+        if (!awaitingQuestion) {
+          succeed();
+        }
       } catch (err) {
+        cancelStreamFlush();
         patchAgentBlock(agentBlockId, {
           status: "error",
           text: err instanceof Error ? err.message : String(err),
         });
-      } finally {
         set({ agentBusy: false });
+      } finally {
+        agentTurnInFlight = false;
+        if (!awaitingQuestion && get().agentBusy) {
+          set({ agentBusy: false });
+        }
       }
     },
 
@@ -903,6 +1377,117 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       const sessionId =
         sessions.find((s) => s.id === activeSessionId)?.agentSessionId ?? null;
       await primaryAgent.abort(sessionId);
+      set({ agentBusy: false });
+    },
+
+    async refreshProjectRoutes() {
+      const root = get().projectMeta?.root;
+      if (root == null || root === "") return;
+      try {
+        const routes = await projectPort.listRoutes(root);
+        const currentPath = get().previewPath;
+        const pathOk =
+          currentPath === "/" ||
+          routes.some((route) => route.path === currentPath);
+        set({
+          projectRoutes: routes,
+          ...(pathOk
+            ? {}
+            : {
+                previewPath: "/",
+                reloadNonce: get().reloadNonce + 1,
+              }),
+        });
+      } catch {
+        // best-effort
+      }
+    },
+
+    async answerQuestion(blockId, answers) {
+      const normalized = answers
+        .map((row) => row.map((cell) => cell.trim()).filter((cell) => cell !== ""))
+        .filter((row) => row.length > 0);
+      if (normalized.length === 0 || primaryAgent?.respondQuestion == null) {
+        return;
+      }
+      const root = get().projectMeta?.root;
+      if (root == null || root === "") return;
+      const sessionId =
+        get().sessions.find((s) => s.id === get().activeSessionId)
+          ?.agentSessionId ?? null;
+      if (sessionId == null || sessionId === "") return;
+
+      const block = get()
+        .sessions.find((s) => s.id === get().activeSessionId)
+        ?.blocks.find(
+          (b) => b.kind === "question" && b.id === blockId,
+        );
+      if (block == null || block.kind !== "question") return;
+
+      set((s) => ({
+        sessions: s.sessions.map((sess) =>
+          sess.id !== s.activeSessionId
+            ? sess
+            : {
+                ...sess,
+                blocks: sess.blocks.map((b) =>
+                  b.kind === "question" && b.id === blockId
+                    ? { ...b, error: undefined }
+                    : b,
+                ),
+              },
+        ),
+      }));
+
+      try {
+        await primaryAgent.respondQuestion(
+          sessionId,
+          block.questionId,
+          normalized,
+          root,
+        );
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "No se pudo enviar la respuesta.";
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id !== s.activeSessionId
+              ? sess
+              : {
+                  ...sess,
+                  blocks: sess.blocks.map((b) =>
+                    b.kind === "question" && b.id === blockId
+                      ? { ...b, error: message }
+                      : b,
+                  ),
+                },
+          ),
+        }));
+        return;
+      }
+
+      const answerLabel = normalized.flat().join(", ");
+      set((s) => ({
+        agentBusy: true,
+        sessions: s.sessions.map((sess) =>
+          sess.id !== s.activeSessionId
+            ? sess
+            : {
+                ...sess,
+                blocks: sess.blocks.map((b) =>
+                  b.kind === "question" && b.id === blockId
+                    ? {
+                        ...b,
+                        status: "answered" as const,
+                        answer: answerLabel,
+                        error: undefined,
+                      }
+                    : b,
+                ),
+              },
+        ),
+      }));
+      captureCurrentWorkspace(get, (r) => schedulePersistProjectWorkspace(r));
     },
 
     async refreshAgent() {
@@ -951,12 +1536,20 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               m.providerId === selectedModel.providerId &&
               m.modelId === selectedModel.modelId,
           );
+        const fromPrefs = modelFromPrefs(models, savedAgentPrefs);
+        const nextModel =
+          still
+            ? selectedModel
+            : fromPrefs ?? pickDefaultModel(models);
         set({
           agentStatus: "up",
           agentDetail: health.version ?? null,
           agentModels: models,
-          selectedModel: still ? selectedModel : pickDefaultModel(models),
+          selectedModel: nextModel,
         });
+        if (nextModel != null) {
+          void persistAgentPrefs();
+        }
       } catch (err) {
         set({
           agentStatus: "down",
@@ -978,10 +1571,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         effort = variants.includes("high") ? "high" : variants[0]!;
       }
       set({ selectedModel: model, reasoningEffort: effort });
+      void persistAgentPrefs();
     },
 
     setReasoningEffort(effort) {
       set({ reasoningEffort: effort });
+      void persistAgentPrefs();
     },
 
     setAgentMode(mode) {
@@ -1018,6 +1613,74 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             : { ...sess, agentSessionId },
         ),
       }));
+      const root = get().projectMeta?.root;
+      if (root != null && root !== "") {
+        void prefs.setLastAgentSession(root, agentSessionId);
+      }
+    },
+
+    openAgentSession(agentSessionId, title) {
+      const { sessions } = get();
+      const existing = sessions.find((s) => s.agentSessionId === agentSessionId);
+      if (existing != null) {
+        set({ activeSessionId: existing.id, chatOpen: true });
+        get().bindAgentSession(agentSessionId);
+        return;
+      }
+      const session = { ...newChatSession(title ?? null), agentSessionId };
+      set({
+        sessions: [...sessions, session],
+        activeSessionId: session.id,
+        chatOpen: true,
+      });
+      const root = get().projectMeta?.root;
+      if (root != null && root !== "") {
+        void prefs.setLastAgentSession(root, agentSessionId);
+      }
+    },
+
+    deleteLocalSession(id) {
+      if (get().agentBusy) return;
+      let { sessions, activeSessionId } = get();
+      const remaining = sessions.filter((s) => s.id !== id);
+      if (remaining.length === 0) {
+        const fresh = newChatSession();
+        set({ sessions: [fresh], activeSessionId: fresh.id });
+        return;
+      }
+      const nextActive =
+        activeSessionId === id ? remaining[0]!.id : activeSessionId;
+      set({ sessions: remaining, activeSessionId: nextActive });
+    },
+
+    async deleteAgentSession(sessionId) {
+      if (primaryAgent?.deleteSession == null) {
+        throw new Error("El agente no soporta eliminar sesiones.");
+      }
+      const root = get().projectMeta?.root;
+      if (root == null || root === "") {
+        throw new Error("No hay proyecto abierto.");
+      }
+      await primaryAgent.deleteSession(sessionId, root);
+      set((s) => ({
+        agentSessions: s.agentSessions.filter((sess) => sess.id !== sessionId),
+        sessions: s.sessions.map((sess) =>
+          sess.agentSessionId === sessionId
+            ? { ...sess, agentSessionId: null }
+            : sess,
+        ),
+      }));
+      if (root != null) {
+        const saved = await prefs.getLastAgentSession(root);
+        if (saved === sessionId) {
+          const active = get().sessions.find(
+            (sess) => sess.id === get().activeSessionId,
+          )?.agentSessionId;
+          if (active != null && active !== "") {
+            await prefs.setLastAgentSession(root, active);
+          }
+        }
+      }
     },
 
     clearQueue() {
@@ -1074,6 +1737,64 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
   }));
 
+  persistWorkspacePrefs = async () => {
+    const { projectMeta, lastProject, openProjectTabs } = store.getState();
+    const path = projectMeta?.root ?? lastProject;
+    if (path != null && path !== "") {
+      await prefs.setLastProject(path);
+      await persistProjectWorkspace(path);
+    }
+    await prefs.setOpenProjectTabs(openProjectTabs);
+  };
+
+  persistProjectWorkspace = async (root: string) => {
+    const snap = restoreWorkspace(root);
+    if (snap == null) return;
+    await prefs.setProjectWorkspace(root, snap);
+  };
+
+  let persistProjectWorkspaceTimer: ReturnType<typeof setTimeout> | null = null;
+  schedulePersistProjectWorkspace = (root: string) => {
+    if (persistProjectWorkspaceTimer != null) {
+      clearTimeout(persistProjectWorkspaceTimer);
+    }
+    persistProjectWorkspaceTimer = setTimeout(() => {
+      void persistProjectWorkspace(root);
+    }, 600);
+  };
+
+  store.subscribe((state, prev) => {
+    const root = state.projectMeta?.root;
+    if (root == null) return;
+    if (
+      state.sessions !== prev.sessions ||
+      state.activeSessionId !== prev.activeSessionId ||
+      state.draftNote !== prev.draftNote
+    ) {
+      snapshotWorkspace(root, state);
+      schedulePersistProjectWorkspace(root);
+    }
+  });
+
+  async function persistAgentPrefs(): Promise<void> {
+    const { selectedModel, reasoningEffort, agentPorts } = store.getState();
+    await prefs.setAgentPrefs({
+      providerId:
+        selectedModel?.providerId ?? agentPorts[0]?.id ?? null,
+      modelId: selectedModel?.modelId ?? null,
+      reasoningEffort,
+    });
+  }
+
+  async function restoreAgentSessionForProject(root: string): Promise<void> {
+    const savedId = await prefs.getLastAgentSession(root);
+    if (savedId == null || savedId === "") return;
+    const hit = store.getState().agentSessions.find((s) => s.id === savedId);
+    if (hit != null) {
+      store.getState().bindAgentSession(savedId);
+    }
+  }
+
   // Mensajes del bridge → estado (ARCHITECTURE §9: previewSlice habla
   // con PreviewPort; select/hover/navigate llegan por acá).
   previewPort.subscribe((msg) => {
@@ -1083,7 +1804,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         // overrides son efímeros y mueren con el documento.
         const st = store.getState();
         previewPort.setMode(st.mode);
-        previewPort.requestTree();
+        scheduleTreeRequests();
         break;
       }
       case "steer:select":

@@ -30,6 +30,17 @@ export type TranscriptBlock =
       reasoning: string;
       tools: TranscriptTool[];
       status: "streaming" | "done" | "error";
+    }
+  | {
+      kind: "question";
+      id: string;
+      questionId: string;
+      prompt: string;
+      options?: string[];
+      questions: Array<{ prompt: string; options?: string[] }>;
+      status: "pending" | "answered";
+      answer?: string;
+      error?: string;
     };
 
 /** Una conversación con el agente. `agentSessionId` llega del AgentEvent. */

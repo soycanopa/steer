@@ -26,5 +26,12 @@ export type {
   TranscriptTool,
 } from "./intents";
 export { initialIntents, newChatSession } from "./intents";
+export type { WorkspaceSnapshot } from "./workspaces";
 export { createAppStore } from "./store";
-export type { AppDeps, PrefsApi, SteerState, SteerStore } from "./store";
+export type {
+  AgentPrefs,
+  AppDeps,
+  PrefsApi,
+  SteerState,
+  SteerStore,
+} from "./store";
