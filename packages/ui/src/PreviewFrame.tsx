@@ -1,13 +1,13 @@
-// PreviewFrame — UI.md §4 / UX §4. Toolbar: menú de modos (icono +
-// popover), cámara, url, reload.
+// PreviewFrame — UI.md §4 / UX §4. Toolbar: tools a la izquierda,
+// dirección centrada (píldora), recargar a la derecha.
 
-import { useState } from "react";
 import {
   Camera,
-  Check,
-  ChevronDown,
   Crosshair,
+  Globe,
+  Layers,
   MessageSquarePlus,
+  Monitor,
   MousePointer,
   RotateCw,
 } from "lucide-react";
@@ -47,6 +47,8 @@ export type PreviewFrameProps = {
   onRetry(): void;
   onCapture(): void;
   onFrameEl(el: HTMLIFrameElement | null): void;
+  layersOpen?: boolean;
+  onToggleLayers?(): void;
 };
 
 export function PreviewFrame({
@@ -60,101 +62,85 @@ export function PreviewFrame({
   onRetry,
   onCapture,
   onFrameEl,
+  layersOpen = false,
+  onToggleLayers,
 }: PreviewFrameProps) {
   const live = status === "live" && url !== null;
-  const [modeOpen, setModeOpen] = useState(false);
-  const current = MODE_META[mode];
-  const CurrentIcon = current.Icon;
 
   return (
     <div className="flex h-full flex-col">
-      <div className="relative flex h-8 shrink-0 items-center gap-1 px-3">
-        {/* Menú de modos: un icono = modo activo; click = popover. */}
-        <div className="relative">
-          <button
-            type="button"
-            disabled={!live}
-            onClick={() => setModeOpen((v) => !v)}
-            title={`${current.label} — ${current.hint}`}
-            className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 ${
-              live
-                ? mode !== "interact"
-                  ? "bg-[var(--accent)] text-white hover:bg-[#6c99ff]"
-                  : "text-[var(--text-1)] hover:bg-[var(--bg-3)]"
-                : "text-[var(--text-1)] opacity-40"
-            }`}
-          >
-            <CurrentIcon size={14} strokeWidth={1.75} />
-          </button>
-          {modeOpen ? (
-            <>
-              <button
-                type="button"
-                aria-label="Cerrar menú de modos"
-                className="fixed inset-0 z-10 cursor-default"
-                onClick={() => setModeOpen(false)}
-              />
-              <div className="absolute top-full left-0 z-20 mt-1 w-44 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-                {(Object.keys(MODE_META) as PreviewModeUi[]).map((key) => {
-                  const meta = MODE_META[key];
-                  const Icon = meta.Icon;
-                  const active = mode === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => {
-                        setModeOpen(false);
-                        if (live) onSetMode(key);
-                      }}
-                      className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-120 ${
-                        active
-                          ? "bg-[var(--accent-dim)] text-[var(--text-0)]"
-                          : "text-[var(--text-1)] hover:bg-[var(--bg-2)]"
-                      }`}
-                    >
-                      <Icon size={13} strokeWidth={1.75} className="shrink-0" />
-                      <span className="min-w-0 flex-1">
-                        <span className="block text-[length:var(--fs-1)]">
-                          {meta.label}
-                        </span>
-                        <span className="block truncate font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-                          {meta.hint}
-                        </span>
-                      </span>
-                      {active ? (
-                        <Check size={12} strokeWidth={2} className="shrink-0 text-[var(--accent)]" />
-                      ) : (
-                        <span className="size-3" aria-hidden />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </>
+      <div className="relative flex h-10 shrink-0 items-center px-3">
+        <div className="z-10 flex items-center gap-0.5">
+          {(Object.keys(MODE_META) as PreviewModeUi[]).map((key) => {
+            const meta = MODE_META[key];
+            const Icon = meta.Icon;
+            return (
+              <ToolbarButton
+                key={key}
+                disabled={!live}
+                active={mode === key}
+                title={`${meta.label} — ${meta.hint}`}
+                onClick={() => live && onSetMode(key)}
+              >
+                <Icon size={15} strokeWidth={1.75} />
+              </ToolbarButton>
+            );
+          })}
+          {onToggleLayers ? (
+            <ToolbarButton
+              active={layersOpen}
+              title={layersOpen ? "Ocultar capas" : "Mostrar capas"}
+              onClick={onToggleLayers}
+            >
+              <Layers size={15} strokeWidth={1.75} />
+            </ToolbarButton>
           ) : null}
+          <ToolbarButton
+            onClick={onCapture}
+            disabled={!live}
+            title="Cámara — capturar preview al chat"
+          >
+            <Camera size={15} strokeWidth={1.75} />
+          </ToolbarButton>
         </div>
 
-        <ToolbarButton
-          onClick={onCapture}
-          disabled={!live}
-          title="Cámara — capturar preview al chat"
-        >
-          <Camera size={14} strokeWidth={1.75} />
-        </ToolbarButton>
-        <span
-          className="ml-1 min-w-0 flex-1 truncate rounded-[var(--radius-s)] bg-[var(--bg-2)] px-2 py-0.5 font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
-          title={url ?? undefined}
-        >
-          {url ?? "—"}
-        </span>
-        <ToolbarButton
-          onClick={onReload}
-          disabled={!live}
-          title="Recargar preview"
-        >
-          <RotateCw size={14} strokeWidth={1.75} />
-        </ToolbarButton>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+          <div
+            className="pointer-events-auto flex h-7 max-w-[280px] items-center gap-2 rounded-full bg-[var(--bg-2)] px-3"
+            title={url ?? undefined}
+          >
+            <Globe size={13} strokeWidth={1.75} className="shrink-0 text-[var(--text-2)]" />
+            <span className="min-w-0 truncate text-[12.5px] text-[var(--text-1)]">
+              {routeLabel(url)}
+            </span>
+            <span
+              className={`size-1.5 shrink-0 rounded-full ${
+                status === "live"
+                  ? "bg-[#ff8a4c]"
+                  : status === "down"
+                    ? "bg-[var(--danger)]"
+                    : "bg-[var(--text-2)]"
+              }`}
+              aria-hidden
+            />
+          </div>
+        </div>
+
+        <div className="z-10 ml-auto flex items-center gap-0.5">
+          <ToolbarButton
+            onClick={onReload}
+            disabled={!live}
+            title="Recargar preview"
+          >
+            <RotateCw size={15} strokeWidth={1.75} />
+          </ToolbarButton>
+          <span
+            title="Preview"
+            className="flex size-7 items-center justify-center text-[var(--text-2)]"
+          >
+            <Monitor size={15} strokeWidth={1.75} />
+          </span>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 px-3 pb-3">
@@ -180,6 +166,17 @@ export function PreviewFrame({
   );
 }
 
+function routeLabel(url: string | null): string {
+  if (url == null || url === "") return "—";
+  try {
+    const path = new URL(url).pathname.replace(/\/+$/, "");
+    const last = path.split("/").filter(Boolean).pop();
+    return last ?? "home";
+  } catch {
+    return url;
+  }
+}
+
 function ToolbarButton({
   children,
   onClick,
@@ -194,12 +191,12 @@ function ToolbarButton({
   title?: string;
 }) {
   const base =
-    "flex size-6 items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 ";
+    "flex size-7 items-center justify-center rounded-[8px] transition-colors duration-120 ";
   const state = disabled
-    ? "text-[var(--text-1)] opacity-40 cursor-default"
+    ? "text-[var(--text-2)] opacity-40 cursor-default"
     : active
-      ? "bg-[var(--accent)] text-white hover:bg-[#6c99ff]"
-      : "text-[var(--text-1)] hover:bg-[var(--bg-3)]";
+      ? "text-[var(--text-0)]"
+      : "text-[var(--text-2)] hover:text-[var(--text-0)] hover:bg-[var(--bg-3)]";
   return (
     <button
       type="button"

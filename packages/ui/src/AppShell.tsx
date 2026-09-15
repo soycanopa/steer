@@ -3,7 +3,7 @@
 // (ARCHITECTURE §3).
 
 import type { ReactNode } from "react";
-import { Layers, MessageSquare } from "lucide-react";
+import { MessageSquare } from "lucide-react";
 import { Statusbar } from "./Statusbar";
 
 export type AppShellProps = {
@@ -19,8 +19,6 @@ export type AppShellProps = {
   modelLabel?: string | null;
   mode: "inspect" | "comment" | "interact";
   queueCount: number;
-  layersOpen: boolean;
-  onToggleLayers(): void;
   chatOpen: boolean;
   onToggleChat(): void;
   /** Arrastra la ventana (inyectado desde apps/desktop; UI no importa Tauri). */
@@ -39,8 +37,6 @@ export function AppShell({
   modelLabel = null,
   mode,
   queueCount,
-  layersOpen,
-  onToggleLayers,
   chatOpen,
   onToggleChat,
   onStartDrag,
@@ -80,18 +76,6 @@ export function AppShell({
         </span>
         {/* Los controles NO arrastran: los clicks deben seguir siendo clics. */}
         <div className="flex items-center justify-end gap-2">
-          <button
-            type="button"
-            onClick={onToggleLayers}
-            title={layersOpen ? "Ocultar capas" : "Mostrar capas"}
-            className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 ${
-              layersOpen
-                ? "bg-[var(--accent)] text-white"
-                : "text-[var(--text-1)] hover:bg-[var(--bg-3)]"
-            }`}
-          >
-            <Layers size={14} strokeWidth={1.75} />
-          </button>
           <button
             type="button"
             onClick={onToggleChat}
