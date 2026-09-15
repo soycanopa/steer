@@ -38,19 +38,7 @@ pub fn normalize_upstream_url(url: &str) -> String {
 
 /// El preview proxy necesita HTTP real, no solo un puerto TCP abierto.
 pub fn upstream_http_ready(url: &str) -> bool {
-    let url = normalize_upstream_url(url);
-    let client = match reqwest::blocking::Client::builder()
-        .timeout(Duration::from_millis(2000))
-        .build()
-    {
-        Ok(c) => c,
-        Err(_) => return false,
-    };
-    client
-        .get(&url)
-        .send()
-        .map(|res| res.status().is_success() || res.status().is_redirection())
-        .unwrap_or(false)
+    crate::upstream_probe::ready_blocking(url)
 }
 
 /// Puerto TCP escuchando en loopback (reutilizado por devserver y opencode).
