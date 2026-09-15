@@ -1,8 +1,8 @@
 /* Tokens visuales — UI.md §2. Herramienta de taller: superficies planas,
    una familia tipográfica, acento único. Light mode: no en P0. */
 :root {
-  --bg-0: #0e0f11; /* ventana */
-  --bg-1: #16181c; /* paneles */
+  --bg-0: #141414; /* ventana */
+  --bg-1: #1f1f1f; /* paneles */
   --bg-2: #1e2127; /* inputs, chips */
   --bg-3: #272b33; /* hover */
   --line: #2c313a;
@@ -24,4 +24,49 @@
   --fs-1: 12.5px;
   --fs-2: 13.5px;
   --fs-3: 15px;
+}
+
+/* Tab de proyecto — esquinas cóncavas abajo (estilo browser tab). */
+.steer-project-tab {
+  position: relative;
+  background: var(--bg-0);
+  border-radius: 6px 6px 0 0;
+}
+
+.steer-project-tab::before,
+.steer-project-tab::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 6px;
+  height: 6px;
+  pointer-events: none;
+}
+
+.steer-project-tab::before {
+  left: -6px;
+  background: radial-gradient(circle at 0 0, transparent 6px, var(--bg-0) 6px);
+}
+
+.steer-project-tab::after {
+  right: -6px;
+  background: radial-gradient(circle at 100% 0, transparent 6px, var(--bg-0) 6px);
+}
+
+/* Tab de inicio — se une con la zona #141414 debajo. */
+.steer-home-tab {
+  position: relative;
+  background: var(--bg-0);
+  border-radius: 6px 6px 0 0;
+}
+
+.steer-home-tab::after {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  right: -6px;
+  width: 6px;
+  height: 6px;
+  pointer-events: none;
+  background: radial-gradient(circle at 100% 0, transparent 6px, var(--bg-0) 6px);
 }

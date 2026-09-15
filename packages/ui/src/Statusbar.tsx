@@ -9,6 +9,7 @@ export type StatusbarProps = {
   /** Label corto del modelo elegido (Fase F). null = sin modelo. */
   modelLabel: string | null;
   agentBusy?: boolean;
+  className?: string;
 };
 
 export function Statusbar({
@@ -16,6 +17,7 @@ export function Statusbar({
   queueCount,
   modelLabel,
   agentBusy = false,
+  className = "",
 }: StatusbarProps) {
   const label =
     mode === "inspect"
@@ -24,7 +26,9 @@ export function Statusbar({
         ? "COMMENT"
         : "INTERACT";
   return (
-    <footer className="flex h-6 shrink-0 items-center justify-between border-t border-[var(--line)] bg-[var(--bg-1)] px-3 font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
+    <footer
+      className={`flex h-6 shrink-0 items-center justify-between overflow-hidden rounded-[var(--radius-m)] bg-[var(--bg-1)] px-3 font-mono text-[length:var(--fs-0)] text-[var(--text-2)] ${className}`}
+    >
       <div className="flex items-center gap-3">
         <span className={mode !== "interact" ? "text-[var(--accent)]" : ""}>
           {label}
