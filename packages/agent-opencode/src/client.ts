@@ -39,6 +39,24 @@ export async function httpGet<T>(
   return (await res.json()) as T;
 }
 
+export async function httpDelete(
+  baseUrl: string,
+  path: string,
+  directory?: string,
+): Promise<void> {
+  const url = new URL(path, baseUrl);
+  withDirectory(url, directory);
+  const res = await fetch(url, { method: "DELETE" });
+  if (!res.ok && res.status !== 204) {
+    const text = await res.text().catch(() => "");
+    throw new OpenCodeHttpError(
+      `DELETE ${path} → ${res.status}${text ? `: ${text.slice(0, 200)}` : ""}`,
+      res.status,
+      path,
+    );
+  }
+}
+
 export async function httpPost<T>(
   baseUrl: string,
   path: string,

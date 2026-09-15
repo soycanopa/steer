@@ -10,7 +10,7 @@ import type {
   TurnPart,
   TurnRequest,
 } from "@steer/ports";
-import { httpGet, httpPost, readSse } from "./client";
+import { httpDelete, httpGet, httpPost, readSse } from "./client";
 import { mapProvidersToModels, type ProvidersResponse } from "./map-models";
 
 export const AGENT_OPENCODE_DEFAULT_URL = "http://127.0.0.1:4096";
@@ -190,7 +190,7 @@ export function createSsePartTracker() {
       };
     }
     if (e.type === "session.idle") {
-      if (sid !== sessionId) return null;
+      if (sid !== null && sid !== sessionId) return null;
       return { type: "done" };
     }
     if (sid !== null && sid !== sessionId) return null;
@@ -319,10 +319,52 @@ export function createSsePartTracker() {
       return { type: "permission", permissionId: id, summary: title };
     }
 
+    if (e.type === "question.asked") {
+      return mapQuestionRequest(e.properties);
+    }
+
     return null;
   }
 
   return { map };
+}
+
+type OpenCodeQuestionOption = { label?: unknown; description?: unknown };
+type OpenCodeQuestionInfo = {
+  question?: unknown;
+  header?: unknown;
+  options?: unknown;
+};
+type OpenCodeQuestionRequest = {
+  id?: unknown;
+  questions?: unknown;
+};
+
+function mapQuestionRequest(raw: unknown): AgentEvent | null {
+  const props = raw as OpenCodeQuestionRequest | undefined;
+  const questionId = typeof props?.id === "string" ? props.id : "";
+  const rows = Array.isArray(props?.questions) ? props.questions : [];
+  const questions = rows.flatMap((row) => {
+    const info = row as OpenCodeQuestionInfo;
+    const prompt =
+      typeof info.question === "string"
+        ? info.question
+        : typeof info.header === "string"
+          ? info.header
+          : "";
+    if (prompt === "") return [];
+    const options = Array.isArray(info.options)
+      ? info.options.flatMap((opt) => {
+          const o = opt as OpenCodeQuestionOption;
+          return typeof o.label === "string" && o.label !== "" ? [o.label] : [];
+        })
+      : undefined;
+    const header =
+      typeof info.header === "string" && info.header !== "" ? info.header : undefined;
+    return [{ prompt, header, options }];
+  });
+  if (questionId === "" || questions.length === 0) return null;
+  return { type: "question", questionId, questions };
 }
 
 export function createOpencodeAgent(
@@ -444,6 +486,7 @@ export function createOpencodeAgent(
           let promptSent = false;
           let emittedText = "";
           let emittedReasoning = "";
+          let questionPending = false;
 
           const pollUntilStable = async (
             emit: (ev: AgentEvent) => void,
@@ -485,38 +528,106 @@ export function createOpencodeAgent(
             }
           };
 
-          for await (const raw of readSse(
-            baseUrl,
-            "/event",
-            directory,
-            signal,
-          )) {
-            const eventType =
-              typeof raw === "object" &&
-              raw !== null &&
-              typeof (raw as { type?: unknown }).type === "string"
-                ? (raw as { type: string }).type
-                : "";
+          const sseAbort = new AbortController();
+          const sseSignal = mergeAbortSignals(signal, sseAbort.signal);
 
-            if (!promptSent && eventType === "server.connected") {
-              await httpPost(
-                baseUrl,
-                `/session/${encodeURIComponent(sessionId)}/prompt_async`,
-                promptBody,
-                directory,
-                signal,
-              );
-              promptSent = true;
+          void (async () => {
+            while (!promptSent && !signal.aborted) {
+              await sleep(80, signal).catch(() => {});
             }
-
-            const mapped = sseParts.map(raw, sessionId);
-            if (mapped != null) {
-              if (mapped.type === "text-delta") emittedText += mapped.text;
-              if (mapped.type === "reasoning-delta") {
-                emittedReasoning += mapped.text;
+            let stable = 0;
+            let lastText = "";
+            for (let i = 0; i < 180 && !signal.aborted; i += 1) {
+              await sleep(450, signal).catch(() => {});
+              if (sseAbort.signal.aborted) return;
+              try {
+                const rows = await httpGet<MessageRow[]>(
+                  baseUrl,
+                  `/session/${encodeURIComponent(sessionId)}/message`,
+                  directory,
+                );
+                const { text } = latestAssistantText(rows);
+                if (questionPending) {
+                  stable = 0;
+                  continue;
+                }
+                if (
+                  text !== "" &&
+                  text === lastText &&
+                  !hasRunningTool(rows)
+                ) {
+                  stable += 1;
+                  if (stable >= 3) {
+                    sseAbort.abort();
+                    return;
+                  }
+                } else {
+                  stable = 0;
+                  lastText = text;
+                }
+              } catch {
+                // Turno en curso.
               }
-              yield mapped;
-              if (mapped.type === "done" || mapped.type === "error") return;
+            }
+            if (!signal.aborted) sseAbort.abort();
+          })();
+
+          try {
+            for await (const raw of readSse(
+              baseUrl,
+              "/event",
+              directory,
+              sseSignal,
+            )) {
+              const eventType =
+                typeof raw === "object" &&
+                raw !== null &&
+                typeof (raw as { type?: unknown }).type === "string"
+                  ? (raw as { type: string }).type
+                  : "";
+
+              if (!promptSent && eventType === "server.connected") {
+                await httpPost(
+                  baseUrl,
+                  `/session/${encodeURIComponent(sessionId)}/prompt_async`,
+                  promptBody,
+                  directory,
+                  signal,
+                );
+                promptSent = true;
+              }
+
+              if (
+                eventType === "question.replied" ||
+                eventType === "question.rejected"
+              ) {
+                questionPending = false;
+              }
+
+              const mapped =
+                eventType === "question.asked"
+                  ? mapQuestionRequest(
+                      (raw as { properties?: unknown }).properties,
+                    )
+                  : sseParts.map(raw, sessionId);
+              if (mapped != null) {
+                if (mapped.type === "text-delta") emittedText += mapped.text;
+                if (mapped.type === "reasoning-delta") {
+                  emittedReasoning += mapped.text;
+                }
+                if (mapped.type === "question") {
+                  questionPending = true;
+                }
+                yield mapped;
+                if (mapped.type === "done" || mapped.type === "error") {
+                  sseAbort.abort();
+                  return;
+                }
+              }
+            }
+          } catch (err) {
+            if (!sseAbort.signal.aborted && !signal.aborted) {
+              throw err;
             }
           }
 
@@ -529,12 +640,14 @@ export function createOpencodeAgent(
             return;
           }
 
-          const pending: AgentEvent[] = [];
-          await pollUntilStable((ev) => {
-            pending.push(ev);
-          });
-          for (const ev of pending) yield ev;
-          yield { type: "done" };
+          if (!questionPending) {
+            const pending: AgentEvent[] = [];
+            await pollUntilStable((ev) => {
+              pending.push(ev);
+            });
+            for (const ev of pending) yield ev;
+            yield { type: "done" };
+          }
         } catch (err) {
           if (signal.aborted) {
             yield { type: "error", message: "Turno detenido." };
@@ -579,6 +692,32 @@ export function createOpencodeAgent(
       );
     },
 
+    async respondQuestion(
+      sessionId: SessionId,
+      questionId: string,
+      answers: string[][],
+      directory: string,
+    ): Promise<void> {
+      await resolveBase();
+      const body = { answers };
+      try {
+        await httpPost(
+          baseUrl,
+          `/question/${encodeURIComponent(questionId)}/reply`,
+          body,
+          directory,
+        );
+        return;
+      } catch {
+        await httpPost(
+          baseUrl,
+          `/session/${encodeURIComponent(sessionId)}/question/${encodeURIComponent(questionId)}/reply`,
+          body,
+          directory,
+        );
+      }
+    },
+
     async listSessions(directory: string) {
       await resolveBase();
       type SessionRow = {
@@ -603,6 +742,15 @@ export function createOpencodeAgent(
         }));
     },
 
+    async deleteSession(sessionId: SessionId, directory: string) {
+      await resolveBase();
+      await httpDelete(
+        baseUrl,
+        `/session/${encodeURIComponent(sessionId)}`,
+        directory,
+      );
+    },
+
     setBaseUrl(url: string) {
       baseUrl = url.replace(/\/+$/, "");
     },
@@ -623,8 +771,37 @@ function mapAgentMode(extras: Record<string, unknown>): string | null {
 
 type MessageRow = {
   info?: { role?: string };
-  parts?: Array<{ type?: string; text?: string }>;
+  parts?: Array<{
+    type?: string;
+    text?: string;
+    state?: { status?: string };
+  }>;
 };
+
+function mergeAbortSignals(
+  a: AbortSignal,
+  b: AbortSignal,
+): AbortSignal {
+  if (a.aborted) return a;
+  if (b.aborted) return b;
+  const ctrl = new AbortController();
+  const onAbort = () => ctrl.abort();
+  a.addEventListener("abort", onAbort);
+  b.addEventListener("abort", onAbort);
+  return ctrl.signal;
+}
+
+function hasRunningTool(rows: MessageRow[]): boolean {
+  const assistants = rows.filter((row) => row.info?.role === "assistant");
+  const last = assistants[assistants.length - 1];
+  if (last?.parts == null) return false;
+  for (const part of last.parts) {
+    if (part.type !== "tool") continue;
+    const status = part.state?.status;
+    if (status === "running" || status === "pending") return true;
+  }
+  return false;
+}
 
 function latestAssistantText(rows: MessageRow[]): {
   text: string;
