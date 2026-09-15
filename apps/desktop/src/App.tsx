@@ -4,6 +4,7 @@ import { useStore } from "zustand";
 import {
   AppShell,
   ChatPanel,
+  CreateProjectDialog,
   HomeView,
   InspectorPanel,
   LayersPanel,
@@ -94,8 +95,12 @@ export default function App() {
   const [chatWidth, setChatWidth] = useState(340);
   const [layersWidth, setLayersWidth] = useState(240);
   const [workspaceView, setWorkspaceView] = useState<"home" | "project">("home");
-  const [openProjects, setOpenProjects] = useState<string[]>([]);
+  const openProjectTabs = useStore(store, (s) => s.openProjectTabs);
+  const createProgress = useStore(store, (s) => s.createProgress);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createParentDir, setCreateParentDir] = useState<string | null>(null);
   const userChoseHomeRef = useRef(false);
+  const projectCreating = projectStatus === "creating";
 
   // No map dentro del selector de Zustand: devuelve array nuevo y
   // dispara render loops. Derivar fuera con useMemo.
@@ -161,6 +166,7 @@ export default function App() {
       for (let i = 0; i < 60 && !cancelled; i += 1) {
         if (isTauri()) {
           await store.getState().bootstrap();
+          await store.getState().syncPersistedWorkspace();
           return;
         }
         await new Promise((r) => setTimeout(r, 100));
@@ -182,23 +188,46 @@ export default function App() {
     const path = await pickDirectory();
     if (!path) return;
     userChoseHomeRef.current = false;
-    await store.getState().openProject(path);
+    await store.getState().openProjectInNewTab(path);
+    setWorkspaceView("project");
+  }
+
+  function beginCreateProject() {
+    setCreateParentDir(null);
+    setCreateDialogOpen(true);
+  }
+
+  async function pickCreateParentDir() {
+    const path = await pickDirectory("Carpeta donde crear el proyecto");
+    if (path) setCreateParentDir(path);
+  }
+
+  async function submitCreateProject(name: string) {
+    if (createParentDir == null) return;
+    userChoseHomeRef.current = false;
+    await store.getState().createStartProject(createParentDir, name);
+    if (store.getState().projectStatus !== "open") return;
+    setCreateDialogOpen(false);
+    setCreateParentDir(null);
     setWorkspaceView("project");
   }
 
   async function selectProject(path: string) {
     userChoseHomeRef.current = false;
-    if (projectMeta?.root !== path) {
-      await store.getState().openProject(path);
-    }
+    await store.getState().switchProjectTab(path);
     setWorkspaceView("project");
+  }
+
+  async function closeProjectTab(path: string) {
+    userChoseHomeRef.current = openProjectTabs.length <= 1;
+    await store.getState().closeProjectTab(path);
+    if (store.getState().openProjectTabs.length === 0) {
+      setWorkspaceView("home");
+    }
   }
 
   useEffect(() => {
     if (projectStatus !== "open" || projectMeta == null) return;
-    setOpenProjects((prev) =>
-      prev.includes(projectMeta.root) ? prev : [...prev, projectMeta.root],
-    );
     if (!userChoseHomeRef.current) {
       setWorkspaceView("project");
     }
@@ -291,7 +320,13 @@ export default function App() {
 
   const inspectorVisible = selection !== null && inspectOn;
 
-  const projectCards = openProjects.map((path) => ({
+  const projectTabs = openProjectTabs.map((path) => ({
+    path,
+    name: lastFolderName(path),
+    active: projectMeta?.root === path && workspaceView === "project",
+  }));
+
+  const projectCards = openProjectTabs.map((path) => ({
     path,
     name: lastFolderName(path),
     active: projectMeta?.root === path,
@@ -306,17 +341,14 @@ export default function App() {
     <AppShell
       projectTabs={
         <ProjectTabStrip
-          projectName={projectOpen ? lastFolderName(projectMeta.root) : null}
+          tabs={projectTabs}
           homeActive={workspaceView === "home"}
-          projectActive={showProjectWorkspace}
           onGoHome={() => {
             userChoseHomeRef.current = true;
             setWorkspaceView("home");
           }}
-          onSelectProject={() => {
-            userChoseHomeRef.current = false;
-            setWorkspaceView("project");
-          }}
+          onSelectTab={(path) => void selectProject(path)}
+          onCloseTab={(path) => void closeProjectTab(path)}
           onNewProject={() => void openViaDialog()}
           onStartDrag={startWindowDrag}
         />
@@ -330,6 +362,20 @@ export default function App() {
       queueCount={queue.length}
     >
       <DebugDrawer open={debugOpen} />
+      <CreateProjectDialog
+        open={createDialogOpen}
+        parentDir={createParentDir}
+        creating={projectCreating}
+        progress={createProgress}
+        error={projectCreating ? null : projectError}
+        onClose={() => {
+          if (projectCreating) return;
+          setCreateDialogOpen(false);
+          setCreateParentDir(null);
+        }}
+        onPickParentDir={() => void pickCreateParentDir()}
+        onSubmit={(name) => void submitCreateProject(name)}
+      />
       {showProjectWorkspace ? (
         <PreviewFrame
               url={previewFrameUrl}
@@ -423,8 +469,14 @@ export default function App() {
                     onRefreshAgentSessions={() =>
                       void store.getState().refreshAgentSessions()
                     }
-                    onBindAgentSession={(id) =>
-                      store.getState().bindAgentSession(id)
+                    onOpenAgentSession={(id, title) =>
+                      store.getState().openAgentSession(id, title)
+                    }
+                    onDeleteLocalSession={(id) =>
+                      store.getState().deleteLocalSession(id)
+                    }
+                    onDeleteAgentSession={(id) =>
+                      store.getState().deleteAgentSession(id)
                     }
                     onAbort={() => void store.getState().abortTurn()}
                     onRemoveComment={(id) => store.getState().removeQueued(id)}
@@ -433,6 +485,9 @@ export default function App() {
                     onFocusEdit={(id) => store.getState().focusEdit(id)}
                     onRemoveAttachment={(id) =>
                       store.getState().removeAttachment(id)
+                    }
+                    onAnswerQuestion={(blockId, answers) =>
+                      void store.getState().answerQuestion(blockId, answers)
                     }
                   />
                 ) : null
@@ -444,8 +499,10 @@ export default function App() {
         <HomeView
           projects={projectCards}
           opening={projectStatus === "opening"}
+          creating={projectCreating}
           error={projectError}
           onOpenProject={() => void openViaDialog()}
+          onCreateProject={beginCreateProject}
           onSelectProject={(path) => void selectProject(path)}
         />
       )}

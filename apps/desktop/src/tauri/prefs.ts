@@ -1,8 +1,7 @@
-// Prefs vía host (TRD §2): last path del proyecto. Commands Rust
-// evitan race con plugin-store en el webview al arrancar.
+// Prefs vía host (TRD §2): proyecto, modelo y sesión OpenCode.
 
 import { invoke } from "@tauri-apps/api/core";
-import type { PrefsApi } from "@steer/app-state";
+import type { AgentPrefs, PrefsApi, WorkspaceSnapshot } from "@steer/app-state";
 
 export function createPrefs(): PrefsApi {
   return {
@@ -15,6 +14,67 @@ export function createPrefs(): PrefsApi {
     },
     async setLastProject(path) {
       await invoke("prefs_set_last_project", { path });
+    },
+    async getOpenProjectTabs() {
+      try {
+        return await invoke<string[]>("prefs_get_open_project_tabs");
+      } catch {
+        return [];
+      }
+    },
+    async setOpenProjectTabs(tabs) {
+      await invoke("prefs_set_open_project_tabs", { tabs });
+    },
+    async getProjectWorkspace(projectRoot) {
+      try {
+        return await invoke<WorkspaceSnapshot | null>(
+          "prefs_get_project_workspace",
+          { projectRoot },
+        );
+      } catch {
+        return null;
+      }
+    },
+    async setProjectWorkspace(projectRoot, workspace) {
+      await invoke("prefs_set_project_workspace", { projectRoot, workspace });
+    },
+    async deleteProjectWorkspace(projectRoot) {
+      await invoke("prefs_delete_project_workspace", { projectRoot });
+    },
+    async getAgentPrefs() {
+      try {
+        return await invoke<AgentPrefs>("prefs_get_agent_prefs");
+      } catch {
+        return {
+          providerId: null,
+          modelId: null,
+          reasoningEffort: null,
+        };
+      }
+    },
+    async setAgentPrefs(prefs) {
+      await invoke("prefs_set_agent_prefs", {
+        prefs: {
+          providerId: prefs.providerId,
+          modelId: prefs.modelId,
+          reasoningEffort: prefs.reasoningEffort,
+        },
+      });
+    },
+    async getLastAgentSession(projectRoot) {
+      try {
+        return await invoke<string | null>("prefs_get_last_agent_session", {
+          projectRoot,
+        });
+      } catch {
+        return null;
+      }
+    },
+    async setLastAgentSession(projectRoot, sessionId) {
+      await invoke("prefs_set_last_agent_session", {
+        projectRoot,
+        sessionId,
+      });
     },
   };
 }

@@ -2,11 +2,11 @@
 
 import { open } from "@tauri-apps/plugin-dialog";
 
-export async function pickDirectory(): Promise<string | null> {
+export async function pickDirectory(title = "Abrir proyecto"): Promise<string | null> {
   const selection = await open({
     directory: true,
     multiple: false,
-    title: "Abrir proyecto",
+    title,
   });
   return typeof selection === "string" ? selection : null;
 }
