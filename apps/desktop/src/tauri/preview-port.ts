@@ -41,14 +41,17 @@ export function createIframePreviewPort(
 
   return {
     setInspect: (on) => post({ type: on ? "steer:inspect-on" : "steer:inspect-off" }),
+    setMode: (mode) => post({ type: "steer:set-mode", mode }),
     setOverrides: (overrides) => post({ type: "steer:set-overrides", overrides }),
     clearOverrides: () => post({ type: "steer:clear-overrides" }),
     highlight: (source) => post({ type: "steer:highlight", source }),
-    addPin: (intentId, steerId, number) =>
-      post({ type: "steer:add-pin", intentId, steerId, number }),
+    addPin: (intentId, steerId, number, body) =>
+      post({ type: "steer:add-pin", intentId, steerId, number, body }),
     removePin: (intentId) => post({ type: "steer:remove-pin", intentId }),
     clearPins: () => post({ type: "steer:clear-pins" }),
     selectNode: (id) => post({ type: "steer:select-node", id }),
+    focusPin: (intentId) => post({ type: "steer:focus-pin", intentId }),
+    capture: () => post({ type: "steer:capture" }),
     subscribe: (handler) => {
       handlers.add(handler);
       return () => handlers.delete(handler);

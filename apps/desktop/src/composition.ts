@@ -3,6 +3,11 @@
 // un adapter desde un componente React es un bug.
 
 import { createAppStore } from "@steer/app-state";
+import {
+  AGENT_OPENCODE_DEFAULT_URL,
+  createOpencodeAgent,
+} from "@steer/agent-opencode";
+import type { AgentPort } from "@steer/ports";
 import { createPrefs } from "./tauri/prefs";
 import { createIframePreviewPort } from "./tauri/preview-port";
 import { createTauriProjectPort } from "./tauri/project-port";
@@ -25,10 +30,13 @@ const projectPort = createTauriProjectPort();
 const previewPort = createIframePreviewPort(() => frameRef.current, pushDebug);
 const prefs = createPrefs();
 
-// Fase F registra aquí los AgentPort:
-// const agents: AgentPort[] = [createOpencodeAgent({ baseUrl })]
+// Fase F: adapter OpenCode registrado aquí (y solo aquí).
+// Un provider nuevo = packages/agent-<id> + una línea acá.
+const agents: AgentPort[] = [
+  createOpencodeAgent({ baseUrl: AGENT_OPENCODE_DEFAULT_URL }),
+];
 
-export const store = createAppStore({ projectPort, previewPort, prefs });
+export const store = createAppStore({ projectPort, previewPort, prefs, agents });
 
 /** La UI registra el iframe; el adapter no toca React. */
 export function setFrameEl(el: HTMLIFrameElement | null): void {

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useStore } from "zustand";
 import {
   AppShell,
@@ -12,6 +12,7 @@ import {
 import { setFrameEl, store } from "./composition";
 import { DebugDrawer } from "./DebugDrawer";
 import { pickDirectory } from "./tauri/dialog";
+import { startWindowDrag } from "./tauri/window";
 
 
 // Capas: mapa del árbol del bridge al view model, marcando activo el
@@ -55,6 +56,7 @@ export default function App() {
   const previewError = useStore(store, (s) => s.previewError);
   const reloadNonce = useStore(store, (s) => s.reloadNonce);
   const inspectOn = useStore(store, (s) => s.inspectOn);
+  const mode = useStore(store, (s) => s.mode);
   const selection = useStore(store, (s) => s.selection);
   const selectedId = useStore(store, (s) => s.selectedId);
   const scope = useStore(store, (s) => s.scope);
@@ -66,6 +68,41 @@ export default function App() {
   const activeSessionId = useStore(store, (s) => s.activeSessionId);
   const chatOpen = useStore(store, (s) => s.chatOpen);
   const draftNote = useStore(store, (s) => s.draftNote);
+  const draftAttachments = useStore(store, (s) => s.draftAttachments);
+  const agentStatus = useStore(store, (s) => s.agentStatus);
+  const agentDetail = useStore(store, (s) => s.agentDetail);
+  const agentModels = useStore(store, (s) => s.agentModels);
+  const selectedModel = useStore(store, (s) => s.selectedModel);
+  const agentBusy = useStore(store, (s) => s.agentBusy);
+  const agentMode = useStore(store, (s) => s.agentMode);
+  const agentSessions = useStore(store, (s) => s.agentSessions);
+  const [chatWidth, setChatWidth] = useState(340);
+
+  // No map dentro del selector de Zustand: devuelve array nuevo y
+  // dispara render loops. Derivar fuera con useMemo.
+  const pendingComments = useMemo(
+    () =>
+      queue.flatMap((i) =>
+        i.kind === "comment"
+          ? [{ id: i.id, pin: i.pin, body: i.body }]
+          : [],
+      ),
+    [queue],
+  );
+
+  const activeAgentSessionId =
+    sessions.find((s) => s.id === activeSessionId)?.agentSessionId ?? null;
+
+  const agentSessionItems = useMemo(
+    () =>
+      agentSessions.map((s) => ({
+        id: s.id,
+        title: s.title,
+        createdAt: s.createdAt,
+        bound: s.id === activeAgentSessionId,
+      })),
+    [agentSessions, activeAgentSessionId],
+  );
 
   useEffect(() => {
     void store.getState().bootstrap();
@@ -77,7 +114,7 @@ export default function App() {
   }
 
   // UX.md §7: ⌘O abre · ⌘Z undo local · ⌘Enter aplica · I Inspect ·
-  // C pin sobre selección · Esc deselecciona.
+  // C comentarios · V interactuar · Esc deselecciona.
   useEffect(() => {
     const isTyping = (e: KeyboardEvent) => {
       const t = e.target;
@@ -109,10 +146,13 @@ export default function App() {
         return;
       }
       if (isTyping(e)) return;
-      if (e.key.toLowerCase() === "i" && !e.metaKey && !e.ctrlKey && !e.altKey) {
-        store.getState().toggleInspect();
-      } else if (e.key.toLowerCase() === "c" && selection !== null) {
-        document.getElementById("steer-pin-input")?.focus();
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key.toLowerCase() === "i") {
+        store.getState().setMode("inspect");
+      } else if (e.key.toLowerCase() === "c") {
+        store.getState().setMode("comment");
+      } else if (e.key.toLowerCase() === "v") {
+        store.getState().setMode("interact");
       } else if (e.key === "Escape") {
         store.getState().deselect();
       }
@@ -124,6 +164,18 @@ export default function App() {
   if (projectStatus === "open" && projectMeta) {
     const devStatus =
       previewStatus === "live" ? "live" : previewStatus === "down" ? "down" : "idle";
+    const agentUiStatus =
+      agentStatus === "up" ? "live" : agentStatus === "down" ? "down" : "idle";
+
+    const modelOptions = agentModels.map((m) => ({
+      key: `${m.providerId}/${m.modelId}`,
+      label: m.label.length > 28 ? `${m.label.slice(0, 26)}…` : m.label,
+      reasoning: m.capabilities.reasoning,
+    }));
+    const selectedModelKey =
+      selectedModel != null
+        ? `${selectedModel.providerId}/${selectedModel.modelId}`
+        : null;
 
     const currentTweaks =
       selection !== null && selectedId !== null
@@ -168,12 +220,18 @@ export default function App() {
         projectName={projectMeta.name}
         projectPath={projectMeta.root}
         devStatus={devStatus}
-        mode={inspectOn ? "inspect" : "interact"}
+        agentStatus={agentUiStatus}
+        agentLabel={selectedModel?.label ?? "listo"}
+        agentDetail={agentDetail}
+        agentBusy={agentBusy}
+        modelLabel={selectedModel?.label ?? null}
+        mode={mode}
         queueCount={queue.length}
         layersOpen={layersOpen}
         onToggleLayers={() => store.getState().toggleLayers()}
         chatOpen={chatOpen}
         onToggleChat={() => store.getState().toggleChat()}
+        onStartDrag={startWindowDrag}
       >
         <DebugDrawer open={debugOpen} />
         <SplitPane
@@ -191,10 +249,11 @@ export default function App() {
               status={previewStatus}
               error={previewError}
               iframeKey={`${previewUrl ?? "none"}#${reloadNonce}`}
-              inspectOn={inspectOn}
-              onToggleInspect={() => store.getState().toggleInspect()}
+              mode={mode}
+              onSetMode={(m) => store.getState().setMode(m)}
               onReload={() => store.getState().reloadPreview()}
               onRetry={() => void store.getState().startPreview()}
+              onCapture={() => store.getState().capturePreview()}
               onFrameEl={setFrameEl}
             />
           }
@@ -223,15 +282,44 @@ export default function App() {
                 sessionTitle={activeSession.title}
                 sessions={sessionViews}
                 queueCount={queue.length}
+                attachments={draftAttachments}
                 draftNote={draftNote}
+                pendingComments={pendingComments}
+                models={modelOptions}
+                selectedModelKey={selectedModelKey}
+                agentMode={agentMode}
+                agentSessions={agentSessionItems}
+                agentBusy={agentBusy}
+                agentOnline={agentUiStatus === "live"}
                 onDraftNote={(text) => store.getState().setDraftNote(text)}
-                onApply={() => store.getState().applyQueue()}
+                onApply={() => void store.getState().applyQueue()}
                 onClearQueue={() => store.getState().clearQueue()}
                 onNewSession={() => store.getState().newSession()}
                 onSelectSession={(id) => store.getState().selectSession(id)}
+                onSelectModel={(key) => {
+                  const m = agentModels.find(
+                    (mod) => `${mod.providerId}/${mod.modelId}` === key,
+                  );
+                  if (m) store.getState().setModel(m);
+                }}
+                onSetAgentMode={(mode) => store.getState().setAgentMode(mode)}
+                onRefreshAgentSessions={() =>
+                  void store.getState().refreshAgentSessions()
+                }
+                onBindAgentSession={(id) =>
+                  store.getState().bindAgentSession(id)
+                }
+                onAbort={() => void store.getState().abortTurn()}
+                onRemoveComment={(id) => store.getState().removeQueued(id)}
+                onFocusComment={(id) => store.getState().focusComment(id)}
+                onRemoveAttachment={(id) =>
+                  store.getState().removeAttachment(id)
+                }
               />
             ) : null
           }
+          rightWidth={chatWidth}
+          onRightWidthChange={setChatWidth}
         />
       </AppShell>
     );
@@ -244,6 +332,7 @@ export default function App() {
       error={projectError}
       onOpenProject={() => void openViaDialog()}
       onOpenRecent={(path) => void store.getState().openProject(path)}
+      onStartDrag={startWindowDrag}
     />
   );
 }

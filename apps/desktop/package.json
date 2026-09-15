@@ -11,6 +11,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@steer/agent-opencode": "workspace:*",
     "@steer/app-state": "workspace:*",
     "@steer/ports": "workspace:*",
     "@steer/ui": "workspace:*",
