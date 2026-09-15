@@ -1,8 +1,11 @@
-// selectionSlice — modo Inspect, nodo seleccionado y tweaks en vivo
+// selectionSlice — modo de preview, nodo seleccionado y tweaks en vivo
 // (UX §4/§5.3/§5.4). Los drafts NO son la cola de intents (Fase E):
 // son el override efímero del preview. Mismo nodo+scope+prop se
 // reemplaza, no se apila.
-import type { Scope, Selection, SourceLoc, TweakProp } from "@steer/domain";
+import type { Scope, Selection, TweakProp } from "@steer/domain";
+
+/** UX §4 + toolbar del preview: interactuar · comentar · inspeccionar. */
+export type PreviewMode = "interact" | "comment" | "inspect";
 
 export type TweakDraft = {
   steerId: string;
@@ -14,6 +17,9 @@ export type TweakDraft = {
 };
 
 export type SelectionSlice = {
+  /** Modo del toolbar del preview. Default: interact. */
+  mode: PreviewMode;
+  /** true cuando el bridge debe capturar hover/click (comment | inspect). */
   inspectOn: boolean;
   selection: Selection | null;
   /** data-steer-id del nodo seleccionado (lo asigna el bridge). */
@@ -27,6 +33,7 @@ export type SelectionSlice = {
 };
 
 export const initialSelectionSlice: SelectionSlice = {
+  mode: "interact",
   inspectOn: false,
   selection: null,
   selectedId: null,

@@ -1,16 +1,36 @@
 // intentsSlice — cola de Intent (TRD §5), sesiones de chat y
 // transcript. La cola es domain puro; este slice solo la guarda y la
-// pasa a los ports. El apply de la Fase E NO llama a ningún agente:
-// deja el lote en el transcript de la sesión activa (criterio de
-// hecho). La F muestra la llamada real y ancla agentSessionId.
+// pasa a los ports.
 import type { ApplyPayload, Intent } from "@steer/domain";
 import type { LayerNode } from "@steer/ports";
 
+export type TranscriptTool = {
+  name: string;
+  status: "start" | "end";
+  detail?: string;
+};
+
+/** Adjunto de imagen (cámara / file picker) que viaja al agente. */
+export type ChatAttachment = {
+  id: string;
+  mime: "image/png" | "image/jpeg";
+  dataBase64: string;
+  name: string;
+};
+
 export type TranscriptBlock =
   | { kind: "user"; id: string; text: string }
-  | { kind: "batch"; id: string; payload: ApplyPayload };
+  | { kind: "batch"; id: string; payload: ApplyPayload }
+  | { kind: "image"; id: string; mime: string; dataBase64: string; name: string }
+  | {
+      kind: "agent";
+      id: string;
+      text: string;
+      tools: TranscriptTool[];
+      status: "streaming" | "done" | "error";
+    };
 
-/** Una conversación con el agente. `agentSessionId` llega en Fase F. */
+/** Una conversación con el agente. `agentSessionId` llega del AgentEvent. */
 export type ChatSession = {
   id: string;
   title: string | null;
@@ -43,6 +63,8 @@ export type IntentsSlice = {
   nextPin: number;
   /** Nota del composer que viaja como userNote del ApplyPayload. */
   draftNote: string;
+  /** Imágenes listas para el próximo Apply (cámara / adjuntar). */
+  draftAttachments: ChatAttachment[];
 };
 
 /** Slice inicial con la primera sesión ya activa. */
@@ -57,5 +79,6 @@ export function initialIntents(): IntentsSlice {
     tree: null,
     nextPin: 1,
     draftNote: "",
+    draftAttachments: [],
   };
 }

@@ -1,13 +1,28 @@
 export type { ProjectSlice, ProjectStatus } from "./project";
 export type { PreviewSlice, PreviewStatus } from "./preview";
 export { initialPreviewSlice } from "./preview";
-export type { SelectionSlice, TweakDraft } from "./selection";
+export type {
+  PreviewMode,
+  SelectionSlice,
+  TweakDraft,
+} from "./selection";
 export { findTweak, initialSelectionSlice } from "./selection";
 export type {
+  AgentMode,
+  AgentSessionSummary,
+} from "@steer/ports";
+export type {
+  AgentSlice,
+  AgentStatus,
+} from "./agent";
+export { initialAgentSlice, pickDefaultModel } from "./agent";
+export type {
+  ChatAttachment,
   ChatSession,
   IntentsSlice,
   TranscriptBlock,
-} from "./intents";export { initialIntents, newChatSession } from "./intents";
+  TranscriptTool,
+} from "./intents";
+export { initialIntents, newChatSession } from "./intents";
 export { createAppStore } from "./store";
 export type { AppDeps, PrefsApi, SteerState, SteerStore } from "./store";
-
