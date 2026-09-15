@@ -149,10 +149,29 @@
     return tag + cls + "  " + Math.round(r.width) + "×" + Math.round(r.height);
   }
 
+  // El overlay es `position:absolute` hijo de `body`. Su containing block es
+  // el `offsetParent` (body si está posicionado; si no, el initial containing
+  // block). NO asumimos que el body arranca en (0,0): con
+  // `body{position:relative}` y un margen superior colapsado, el body queda
+  // corrido y el overlay se dibujaba desfasado (p. ej. 87px más abajo).
+  // Devuelve el origen del containing block en coordenadas de viewport.
+  function overlayOrigin(box) {
+    var op = box && box.offsetParent;
+    if (op == null) {
+      return { x: -window.scrollX, y: -window.scrollY };
+    }
+    var r = op.getBoundingClientRect();
+    var cs = window.getComputedStyle(op);
+    var bl = parseFloat(cs.borderLeftWidth) || 0;
+    var bt = parseFloat(cs.borderTopWidth) || 0;
+    return { x: r.left + bl - op.scrollLeft, y: r.top + bt - op.scrollTop };
+  }
+
   function place(box, el) {
     var r = el.getBoundingClientRect();
-    box.style.left = r.left + window.scrollX + "px";
-    box.style.top = r.top + window.scrollY + "px";
+    var o = overlayOrigin(box);
+    box.style.left = r.left - o.x + "px";
+    box.style.top = r.top - o.y + "px";
     box.style.width = r.width + "px";
     box.style.height = r.height + "px";
     box.style.display = "block";
@@ -160,9 +179,11 @@
 
   function placeLabel(label, el) {
     var r = el.getBoundingClientRect();
-    var x = r.left + window.scrollX;
-    var y = r.top + window.scrollY - 20;
-    if (y - window.scrollY < 2) y = r.top + window.scrollY + 2;
+    var o = overlayOrigin(label);
+    var x = r.left - o.x;
+    var y = r.top - o.y - 20;
+    // Si el label quedaría fuera del borde superior del viewport, va debajo.
+    if (r.top - 20 < 2) y = r.top - o.y + 2;
     label.style.left = x + "px";
     label.style.top = y + "px";
     label.style.display = "block";
@@ -183,16 +204,17 @@
     var mB = px("marginBottom"), mL = px("marginLeft");
     var bT = border("borderTopWidth"), bR = border("borderRightWidth");
     var bB = border("borderBottomWidth"), bL = border("borderLeftWidth");
+    // Coordenadas de viewport; placeSpacing las traduce al containing block.
     return {
       margin: {
-        left: r.left + window.scrollX - mL,
-        top: r.top + window.scrollY - mT,
+        left: r.left - mL,
+        top: r.top - mT,
         width: r.width + mL + mR,
         height: r.height + mT + mB,
       },
       padding: {
-        left: r.left + window.scrollX + bL,
-        top: r.top + window.scrollY + bT,
+        left: r.left + bL,
+        top: r.top + bT,
         width: r.width - bL - bR,
         height: r.height - bT - bB,
       },
@@ -202,12 +224,14 @@
   function placeSpacing(el) {
     ensureOverlayNodes();
     var s = rectsForSpacing(el);
-    marginBox.style.left = s.margin.left + "px";
-    marginBox.style.top = s.margin.top + "px";
+    var om = overlayOrigin(marginBox);
+    marginBox.style.left = s.margin.left - om.x + "px";
+    marginBox.style.top = s.margin.top - om.y + "px";
     marginBox.style.width = s.margin.width + "px";
     marginBox.style.height = s.margin.height + "px";
-    paddingBox.style.left = s.padding.left + "px";
-    paddingBox.style.top = s.padding.top + "px";
+    var op = overlayOrigin(paddingBox);
+    paddingBox.style.left = s.padding.left - op.x + "px";
+    paddingBox.style.top = s.padding.top - op.y + "px";
     paddingBox.style.width = s.padding.width + "px";
     paddingBox.style.height = s.padding.height + "px";
     marginBox.style.display = "block";
@@ -850,10 +874,11 @@
         continue;
       }
       var r = el.getBoundingClientRect();
+      var o = overlayOrigin(pin.badge);
       pin.badge.style.display = "flex";
       pin.badge.style.left =
-        r.left + window.scrollX + r.width - PIN_SIZE / 2 + "px";
-      pin.badge.style.top = r.top + window.scrollY - PIN_SIZE / 2 + "px";
+        r.left - o.x + r.width - PIN_SIZE / 2 + "px";
+      pin.badge.style.top = r.top - o.y - PIN_SIZE / 2 + "px";
     }
   }
 
@@ -986,8 +1011,9 @@
     };
     commentTextarea.value = body || "";
     commentPopover.style.display = "block";
-    var top = r.bottom + window.scrollY + 8;
-    var left = r.left + window.scrollX;
+    var o = overlayOrigin(commentPopover);
+    var top = r.bottom - o.y + 8;
+    var left = r.left - o.x;
     commentPopover.style.top = top + "px";
     commentPopover.style.left = Math.max(8, Math.min(left, window.innerWidth - 256)) + "px";
     setTimeout(function () {
