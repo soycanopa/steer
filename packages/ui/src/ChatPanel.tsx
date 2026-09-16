@@ -354,16 +354,20 @@ export function ChatPanel({
 
       {/* Sin border-t: la columna chat no lleva línea superior sobre el composer. */}
       <div className="relative shrink-0 px-3 pt-2 pb-3">
-        <PendingEdits
-          edits={pendingEdits}
-          onFocus={onFocusEdit}
-          onRemove={onRemoveEdit}
-        />
-        <PendingComments
-          comments={pendingComments}
-          onFocus={onFocusComment}
-          onRemove={onRemoveComment}
-        />
+        {pendingEdits.length > 0 || pendingComments.length > 0 ? (
+          <div className="mb-2 flex flex-wrap items-center gap-1.5">
+            <PendingEdits
+              edits={pendingEdits}
+              onFocus={onFocusEdit}
+              onRemove={onRemoveEdit}
+            />
+            <PendingComments
+              comments={pendingComments}
+              onFocus={onFocusComment}
+              onRemove={onRemoveComment}
+            />
+          </div>
+        ) : null}
 
         {pendingQuestion != null ? (
           <div className="mb-2">
@@ -454,7 +458,7 @@ export function tweakEditLabel(prop: TweakProp, to: string): string {
 
 /**
  * Ediciones de diseño pendientes (tweaks).
- * Mismo patrón que comentarios pero color accent (azul).
+ * Siempre un chip agrupado (no tags sueltos) para no empujar el composer.
  */
 function PendingEdits({
   edits,
@@ -469,95 +473,63 @@ function PendingEdits({
 
   if (edits.length === 0) return null;
 
-  if (edits.length > 2) {
-    return (
-      <div className="relative mb-2">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-dim)] px-2.5 py-1 text-[length:var(--fs-0)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--accent)]/20"
-        >
-          <SlidersHorizontal size={11} strokeWidth={1.75} className="text-[var(--accent)]" />
-          {edits.length} ediciones
-          <ChevronDown
-            size={11}
-            strokeWidth={1.75}
-            className={`text-[var(--text-2)] transition-transform duration-120 ${open ? "" : "-rotate-90"}`}
-          />
-        </button>
-        {open ? (
-          <div className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-full min-w-[220px] overflow-y-auto rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-            {edits.map((e) => (
-              <div
-                key={e.id}
-                className="group flex items-start gap-1.5 px-2.5 py-1.5 hover:bg-[var(--bg-2)]"
-              >
-                <button
-                  type="button"
-                  onClick={() => onFocus(e.id)}
-                  title={`${e.label} (${e.from} → ${e.to})`}
-                  className="min-w-0 flex-1 text-left"
-                >
-                  <span className="font-mono text-[var(--accent)]">
-                    #{e.pin} {e.label}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove(e.id)}
-                  title="Eliminar edición"
-                  className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
-                >
-                  <X size={10} strokeWidth={2} />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
+  const label =
+    edits.length === 1 ? "1 edición" : `${edits.length} ediciones`;
 
   return (
-    <div className="mb-2 flex flex-wrap gap-1.5">
-      {edits.map((e) => (
-        <span
-          key={e.id}
-          className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-dim)] py-0.5 pr-1 pl-2 text-[length:var(--fs-0)] text-[var(--text-0)]"
-        >
-          <button
-            type="button"
-            onClick={() => onFocus(e.id)}
-            title={`${e.label} (${e.from} → ${e.to})`}
-            className="min-w-0 max-w-[180px] truncate text-left hover:text-[var(--accent)]"
-          >
-            <SlidersHorizontal
-              size={10}
-              strokeWidth={1.75}
-              className="mr-0.5 inline text-[var(--accent)]"
-            />
-            <span className="font-mono text-[var(--accent)]">
-              #{e.pin} {e.label}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => onRemove(e.id)}
-            title="Quitar edición"
-            className="flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
-          >
-            <X size={10} strokeWidth={2} />
-          </button>
-        </span>
-      ))}
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-dim)] px-2.5 py-1 text-[length:var(--fs-0)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--accent)]/20"
+      >
+        <SlidersHorizontal size={11} strokeWidth={1.75} className="text-[var(--accent)]" />
+        {label}
+        <ChevronDown
+          size={11}
+          strokeWidth={1.75}
+          className={`text-[var(--text-2)] transition-transform duration-120 ${open ? "" : "-rotate-90"}`}
+        />
+      </button>
+      {open ? (
+        <div className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-[min(100vw,260px)] min-w-[220px] overflow-y-auto rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+          {edits.map((e) => (
+            <div
+              key={e.id}
+              className="group flex items-start gap-1.5 px-2.5 py-1.5 hover:bg-[var(--bg-2)]"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onFocus(e.id);
+                  setOpen(false);
+                }}
+                title={`${e.label} (${e.from} → ${e.to})`}
+                className="min-w-0 flex-1 text-left"
+              >
+                <span className="font-mono text-[var(--accent)]">
+                  #{e.pin} {e.label}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemove(e.id)}
+                title="Eliminar edición"
+                className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
+              >
+                <X size={10} strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
 
 /**
- * Comentarios pendientes en el chat.
- * · 1–2: tags sueltos (ver / quitar)
- * · 3+: un chip “N comentarios” abre un popover con la lista
+ * Comentarios pendientes: un chip desde el primero. Clic en un ítem
+ * abre el popover del pin en el preview para editar el texto.
  */
 function PendingComments({
   comments,
@@ -572,82 +544,59 @@ function PendingComments({
 
   if (comments.length === 0) return null;
 
-  if (comments.length > 2) {
-    return (
-      <div className="relative mb-2">
-        <button
-          type="button"
-          onClick={() => setOpen((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pin)]/40 bg-[var(--pin)]/12 px-2.5 py-1 text-[length:var(--fs-0)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--pin)]/20"
-        >
-          <Pin size={11} strokeWidth={1.75} className="text-[var(--pin)]" />
-          {comments.length} comentarios
-          <ChevronDown
-            size={11}
-            strokeWidth={1.75}
-            className={`text-[var(--text-2)] transition-transform duration-120 ${open ? "" : "-rotate-90"}`}
-          />
-        </button>
-        {open ? (
-          <div className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-full min-w-[220px] overflow-y-auto rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-            {comments.map((c) => (
-              <div
-                key={c.id}
-                className="group flex items-start gap-1.5 px-2.5 py-1.5 hover:bg-[var(--bg-2)]"
-              >
-                <button
-                  type="button"
-                  onClick={() => onFocus(c.id)}
-                  title="Ver en el preview"
-                  className="min-w-0 flex-1 text-left"
-                >
-                  <span className="font-mono text-[var(--pin)]">#{c.pin}</span>{" "}
-                  <span className="text-[length:var(--fs-1)] text-[var(--text-1)]">
-                    {c.body}
-                  </span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => onRemove(c.id)}
-                  title="Eliminar"
-                  className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
-                >
-                  <X size={10} strokeWidth={2} />
-                </button>
-              </div>
-            ))}
-          </div>
-        ) : null}
-      </div>
-    );
-  }
+  const label =
+    comments.length === 1
+      ? "1 comentario"
+      : `${comments.length} comentarios`;
 
   return (
-    <div className="mb-2 flex flex-wrap gap-1.5">
-      {comments.map((c) => (
-        <span
-          key={c.id}
-          className="inline-flex max-w-full items-center gap-1 rounded-full border border-[var(--pin)]/40 bg-[var(--pin)]/12 py-0.5 pr-1 pl-2 text-[length:var(--fs-0)] text-[var(--text-0)]"
-        >
-          <button
-            type="button"
-            onClick={() => onFocus(c.id)}
-            title={c.body}
-            className="min-w-0 max-w-[160px] truncate text-left hover:text-[var(--pin)]"
-          >
-            <span className="font-mono text-[var(--pin)]">#{c.pin}</span>{" "}
-            {c.body}
-          </button>
-          <button
-            type="button"
-            onClick={() => onRemove(c.id)}
-            title="Quitar comentario"
-            className="flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
-          >
-            <X size={10} strokeWidth={2} />
-          </button>
-        </span>
-      ))}
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pin)]/40 bg-[var(--pin)]/12 px-2.5 py-1 text-[length:var(--fs-0)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--pin)]/20"
+      >
+        <Pin size={11} strokeWidth={1.75} className="text-[var(--pin)]" />
+        {label}
+        <ChevronDown
+          size={11}
+          strokeWidth={1.75}
+          className={`text-[var(--text-2)] transition-transform duration-120 ${open ? "" : "-rotate-90"}`}
+        />
+      </button>
+      {open ? (
+        <div className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-[min(100vw,260px)] min-w-[220px] overflow-y-auto rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+          {comments.map((c) => (
+            <div
+              key={c.id}
+              className="group flex items-start gap-1.5 px-2.5 py-1.5 hover:bg-[var(--bg-2)]"
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  onFocus(c.id);
+                  setOpen(false);
+                }}
+                title="Editar comentario en el preview"
+                className="min-w-0 flex-1 text-left"
+              >
+                <span className="font-mono text-[var(--pin)]">#{c.pin}</span>{" "}
+                <span className="text-[length:var(--fs-1)] text-[var(--text-1)]">
+                  {c.body}
+                </span>
+              </button>
+              <button
+                type="button"
+                onClick={() => onRemove(c.id)}
+                title="Eliminar"
+                className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
+              >
+                <X size={10} strokeWidth={2} />
+              </button>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </div>
   );
 }
