@@ -35,6 +35,11 @@ export type ProjectPort = {
     onProgress?: (progress: CreateProgress) => void,
   ): Promise<ProjectMeta>;
   startDev(path: string): Promise<{ url: string; spawned: boolean }>;
+  /**
+   * URL del dev server si está vivo (sin spawnear). Lo usa el home para
+   * previews live de los recientes. `null` si no responde.
+   */
+  previewUrl(path: string): Promise<string | null>;
   /** Apaga solo el proxy del preview; el dev server sigue vivo. */
   detachPreview(): Promise<void>;
   stopDev(path: string): Promise<void>;

@@ -4,7 +4,7 @@
   --bg-0: #141414; /* ventana */
   --bg-1: #1f1f1f; /* paneles */
   --bg-2: #1e2127; /* inputs, chips */
-  --bg-3: #272b33; /* hover */
+  --bg-3: #252525; /* controles / hover */
   --line: #2c313a;
   --text-0: #f2f3f5;
   --text-1: #c4c8d0;
@@ -16,6 +16,11 @@
   --danger: #ff6b6b;
   --pin: #ff8a4c;
   --overlay: #5b8cff; /* outline inspect */
+  --border-input: #1f1f1f; /* borde del composer del home */
+  --beam-width: 6px; /* grosor del borde + beam */
+  --radius-input: 16px; /* radio del composer del home */
+  --shadow-input: 0 18px 50px -20px rgba(0, 0, 0, 0.7);
+  --pixel-dot: rgba(255, 255, 255, 0.06);
   --radius-s: 6px;
   --radius-m: 10px;
   --font-ui: "IBM Plex Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
@@ -71,11 +76,59 @@
   background: radial-gradient(circle at 100% 0, transparent 6px, var(--bg-0) 6px);
 }
 
+/* Fondo de píxeles del home: grid de puntos que se desvanece hacia arriba. */
+.steer-pixel-grid {
+  background-image: radial-gradient(
+    circle,
+    var(--pixel-dot) 1.5px,
+    transparent 1.5px
+  );
+  background-size: 10px 10px;
+  -webkit-mask-image: linear-gradient(to top, #000 0%, transparent 60%);
+  mask-image: linear-gradient(to top, #000 0%, transparent 60%);
+}
+
+/* El border beam lo aporta el paquete `border-beam` (libraries.dev/beam). */
+
 /* Resize de paneles: el iframe del preview no debe tragarse los eventos de
    puntero (mousemove/mouseup) cuando el cursor lo cruza; eso congelaba el
    drag del sidebar. */
 body.steer-resizing iframe {
   pointer-events: none !important;
+}
+
+/* Loader de píxeles (thinking del agente): celda que prende y apaga. */
+@keyframes pixel-on {
+  0%,
+  100% {
+    opacity: 0.15;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+
+@keyframes shimmer-text {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+
+.shimmer-text {
+  background-image: linear-gradient(
+    90deg,
+    var(--text-2) 35%,
+    var(--text-0) 50%,
+    var(--text-2) 65%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer-text 3s linear infinite;
 }
 
 @keyframes steer-shimmer {

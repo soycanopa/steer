@@ -76,5 +76,30 @@ export function createPrefs(): PrefsApi {
         sessionId,
       });
     },
+    async getRecentProjects() {
+      try {
+        return await invoke<string[]>("prefs_get_recent_projects");
+      } catch {
+        return [];
+      }
+    },
+    async setRecentProjects(paths) {
+      await invoke("prefs_set_recent_projects", { projects: paths });
+    },
+    async getProjectThumbnails() {
+      try {
+        return await invoke<Record<string, string>>(
+          "prefs_get_project_thumbnails",
+        );
+      } catch {
+        return {};
+      }
+    },
+    async setProjectThumbnail(projectRoot, dataUrl) {
+      await invoke("prefs_set_project_thumbnail", { projectRoot, dataUrl });
+    },
+    async clearProjectThumbnail(projectRoot) {
+      await invoke("prefs_clear_project_thumbnail", { projectRoot });
+    },
   };
 }

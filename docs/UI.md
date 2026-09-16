@@ -148,12 +148,13 @@ Mientras stream: caret block, botón Abort (`Detener`) danger ghost.
 
 ## 7. Empty / onboarding screens
 
-Centrado, max-width 420.
+Home centrado, max-width 720.
 
-- Título fs-3 text-0 “Steer”
-- Subtitle text-2 “Dirige el diseño. El agente escribe el código.”
-- Dos botones stacked: primary Abrir, secondary Crear
-- Recientes: lista de paths mono fs-1, hover `--bg-2`
+- Fondo: grid de puntos (`.steer-pixel-grid`) que se desvanece de abajo hacia arriba
+- Header: “Steer” (fs-2) + botón “Abrir proyecto”
+- **Recientes**: grid de cards chicas (min ~168px, aspect 16/10) con **preview live solo al hover** (iframe 5× ≈900px internos, `pointer-events:none`) y **solo el nombre**; en reposo, thumbnail (snapshot nativo) o placeholder. Borde `--line`, activo con `--accent`/45. Botón **eliminar** (basura, en hover) con **confirmación inline**: borra recents + historial de Steer + server; **no toca archivos**
+- **Composer central**: textarea auto-grow con prompt; fila inferior = selector de modelo + botón carpeta (popover: nombre del proyecto + ubicación con folder picker) + candado de permisos + enviar. Fondo #141414, borde `--beam-width` (6px, `--border-input` #1F1F1F), sombra `--shadow-input` y **border beam** animado del paquete `border-beam` (`size="md"`, `colorVariant="colorful"`, `strength=0.7`)
+- Progreso del scaffold dentro del propio composer
 
 Sin video. Sin carousel.
 

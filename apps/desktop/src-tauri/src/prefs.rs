@@ -159,3 +159,79 @@ pub fn prefs_set_last_agent_session(
     store.save().map_err(|e| e.to_string())?;
     Ok(())
 }
+
+// ---- Home: proyectos recientes + thumbnails de preview (TRD §9).
+
+#[tauri::command]
+pub fn prefs_get_recent_projects(app: tauri::AppHandle) -> Result<Vec<String>, String> {
+    let store = app.store("prefs.json").map_err(|e| e.to_string())?;
+    Ok(store
+        .get("recentProjects")
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default())
+}
+
+#[tauri::command]
+pub fn prefs_set_recent_projects(
+    app: tauri::AppHandle,
+    projects: Vec<String>,
+) -> Result<(), String> {
+    let store = app.store("prefs.json").map_err(|e| e.to_string())?;
+    store.set(
+        "recentProjects",
+        serde_json::to_value(projects).map_err(|e| e.to_string())?,
+    );
+    store.save().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+fn read_thumbnail_map(
+    store: &Arc<tauri_plugin_store::Store<tauri::Wry>>,
+) -> HashMap<String, String> {
+    store
+        .get("projectThumbnails")
+        .and_then(|v| serde_json::from_value(v).ok())
+        .unwrap_or_default()
+}
+
+#[tauri::command]
+pub fn prefs_get_project_thumbnails(
+    app: tauri::AppHandle,
+) -> Result<HashMap<String, String>, String> {
+    let store = app.store("prefs.json").map_err(|e| e.to_string())?;
+    Ok(read_thumbnail_map(&store))
+}
+
+#[tauri::command]
+pub fn prefs_set_project_thumbnail(
+    app: tauri::AppHandle,
+    project_root: String,
+    data_url: String,
+) -> Result<(), String> {
+    let store = app.store("prefs.json").map_err(|e| e.to_string())?;
+    let mut map = read_thumbnail_map(&store);
+    map.insert(project_root, data_url);
+    store.set(
+        "projectThumbnails",
+        serde_json::to_value(map).map_err(|e| e.to_string())?,
+    );
+    store.save().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub fn prefs_clear_project_thumbnail(
+    app: tauri::AppHandle,
+    project_root: String,
+) -> Result<(), String> {
+    let store = app.store("prefs.json").map_err(|e| e.to_string())?;
+    let mut map = read_thumbnail_map(&store);
+    if map.remove(&project_root).is_some() {
+        store.set(
+            "projectThumbnails",
+            serde_json::to_value(map).map_err(|e| e.to_string())?,
+        );
+        store.save().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

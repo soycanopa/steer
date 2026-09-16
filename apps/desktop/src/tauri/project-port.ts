@@ -35,6 +35,9 @@ export function createTauriProjectPort(): ProjectPort {
       return { url: proxy.proxyUrl, spawned: dev.spawned };
     },
 
+    previewUrl: (path) =>
+      invoke<string | null>("project_preview_url", { path }),
+
     detachPreview: () => invoke("proxy_stop"),
 
     stopDev: async (path) => {

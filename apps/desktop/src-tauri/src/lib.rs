@@ -10,6 +10,7 @@ mod prefs;
 mod process;
 mod project;
 mod proxy;
+mod snapshot;
 mod upstream_probe;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -30,6 +31,8 @@ pub fn run() {
             host::host_open_url,
             devserver::project_dev_start,
             devserver::project_dev_stop,
+            devserver::project_preview_url,
+            snapshot::window_snapshot,
             opencode::opencode_ensure,
             prefs::prefs_get_last_project,
             prefs::prefs_set_last_project,
@@ -42,6 +45,11 @@ pub fn run() {
             prefs::prefs_set_agent_prefs,
             prefs::prefs_get_last_agent_session,
             prefs::prefs_set_last_agent_session,
+            prefs::prefs_get_recent_projects,
+            prefs::prefs_set_recent_projects,
+            prefs::prefs_get_project_thumbnails,
+            prefs::prefs_set_project_thumbnail,
+            prefs::prefs_clear_project_thumbnail,
             proxy::proxy_start,
             proxy::proxy_stop
         ])

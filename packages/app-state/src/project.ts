@@ -18,6 +18,12 @@ export type ProjectSlice = {
   projectRoutes: ProjectRoute[];
   /** Proyectos abiertos en tabs (orden de apertura). */
   openProjectTabs: string[];
+  /** Proyectos recientes (más nuevo primero, incluye cerrados). */
+  recentProjects: string[];
+  /** Thumbnail del preview por root (data URL). */
+  projectThumbnails: Record<string, string>;
+  /** URL live del dev server por root (home). */
+  recentPreviewUrls: Record<string, string>;
   /** Progreso del scaffold TanStack Start (null si no está creando). */
   createProgress: CreateProgressState | null;
 };
