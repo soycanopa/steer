@@ -90,6 +90,7 @@ export default function App() {
   const agentModels = useStore(store, (s) => s.agentModels);
   const selectedModel = useStore(store, (s) => s.selectedModel);
   const reasoningEffort = useStore(store, (s) => s.reasoningEffort);
+  const modelParamValues = useStore(store, (s) => s.modelParamValues);
   const agentBusy = useStore(store, (s) => s.agentBusy);
   const permissionPolicy = useStore(store, (s) => s.permissionPolicy);
   const agentSessions = useStore(store, (s) => s.agentSessions);
@@ -161,7 +162,9 @@ export default function App() {
     selectedModel != null
       ? `${selectedModel.providerId}/${selectedModel.modelId}`
       : null;
-  const showModelReasoning = selectedModel?.capabilities.reasoning === true;
+  const showModelReasoning =
+    selectedModel?.adapterId !== "antigravity" &&
+    selectedModel?.capabilities.reasoning === true;
 
   useEffect(() => {
     let cancelled = false;
@@ -446,6 +449,7 @@ export default function App() {
                     providerGroups={providerGroups}
                     selectedModelKey={selectedModelKey}
                     reasoningEffort={reasoningEffort}
+                    modelParamValues={modelParamValues}
                     showModelReasoning={showModelReasoning}
                     permissionPolicy={permissionPolicy}
                     agentSessions={agentSessionItems}
@@ -464,6 +468,9 @@ export default function App() {
                     }}
                     onSetReasoningEffort={(effort) =>
                       store.getState().setReasoningEffort(effort)
+                    }
+                    onSetModelParam={(id, value) =>
+                      store.getState().setModelParam(id, value)
                     }
                     onSetPermissionPolicy={(policy) =>
                       store.getState().setPermissionPolicy(policy)
@@ -517,6 +524,7 @@ export default function App() {
               providerGroups={providerGroups}
               selectedModelKey={selectedModelKey}
               reasoningEffort={reasoningEffort}
+              modelParamValues={modelParamValues}
               showModelReasoning={showModelReasoning}
               agentOnline={agentUiStatus === "live"}
               onSelectModel={(key) => {
@@ -527,6 +535,9 @@ export default function App() {
               }}
               onSetReasoningEffort={(effort) =>
                 store.getState().setReasoningEffort(effort)
+              }
+              onSetModelParam={(id, value) =>
+                store.getState().setModelParam(id, value)
               }
               permissionPolicy={permissionPolicy}
               onSetPermissionPolicy={(policy) =>

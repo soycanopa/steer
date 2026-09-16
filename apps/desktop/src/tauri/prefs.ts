@@ -49,6 +49,7 @@ export function createPrefs(): PrefsApi {
           providerId: null,
           modelId: null,
           reasoningEffort: null,
+          paramValues: null,
         };
       }
     },
@@ -58,6 +59,7 @@ export function createPrefs(): PrefsApi {
           providerId: prefs.providerId,
           modelId: prefs.modelId,
           reasoningEffort: prefs.reasoningEffort,
+          paramValues: prefs.paramValues,
         },
       });
     },

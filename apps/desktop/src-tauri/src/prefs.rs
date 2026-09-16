@@ -12,6 +12,8 @@ pub struct AgentPrefs {
     pub provider_id: Option<String>,
     pub model_id: Option<String>,
     pub reasoning_effort: Option<String>,
+    #[serde(default)]
+    pub param_values: Option<HashMap<String, String>>,
 }
 
 fn read_workspace_map(

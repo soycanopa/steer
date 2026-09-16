@@ -8,7 +8,25 @@ import {
   createOpencodeAgent,
   type OpencodeAgentPort,
 } from "@steer/agent-opencode";
+import {
+  AGENT_CURSOR_DEFAULT_URL,
+  createCursorAgent,
+  type CursorAgentPort,
+} from "@steer/agent-cursor";
+import {
+  AGENT_GROK_DEFAULT_URL,
+  createGrokAgent,
+  type GrokAgentPort,
+} from "@steer/agent-grok";
+import {
+  AGENT_ANTIGRAVITY_DEFAULT_URL,
+  createAntigravityAgent,
+  type AntigravityAgentPort,
+} from "@steer/agent-antigravity";
 import type { AgentPort } from "@steer/ports";
+import { ensureAntigravity } from "./tauri/antigravity-runtime";
+import { ensureCursor } from "./tauri/cursor-runtime";
+import { ensureGrok } from "./tauri/grok-runtime";
 import { ensureOpencode } from "./tauri/opencode-runtime";
 import { createPrefs } from "./tauri/prefs";
 import { createIframePreviewPort } from "./tauri/preview-port";
@@ -38,12 +56,46 @@ const opencodeAgent: OpencodeAgentPort = createOpencodeAgent({
   baseUrl: AGENT_OPENCODE_DEFAULT_URL,
 });
 
+const cursorAgent: CursorAgentPort = createCursorAgent({
+  baseUrl: AGENT_CURSOR_DEFAULT_URL,
+});
+
+const grokAgent: GrokAgentPort = createGrokAgent({
+  baseUrl: AGENT_GROK_DEFAULT_URL,
+});
+
+const antigravityAgent: AntigravityAgentPort = createAntigravityAgent({
+  baseUrl: AGENT_ANTIGRAVITY_DEFAULT_URL,
+});
+
 const agents: AgentPort[] = [
   {
     ...opencodeAgent,
     async ensureRuntime(directory) {
       const info = await ensureOpencode(directory);
       opencodeAgent.setBaseUrl(info.baseUrl);
+    },
+  },
+  {
+    ...cursorAgent,
+    async ensureRuntime(_directory) {
+      const info = await ensureCursor();
+      cursorAgent.setBaseUrl(info.baseUrl);
+      await cursorAgent.login();
+    },
+  },
+  {
+    ...grokAgent,
+    async ensureRuntime(_directory) {
+      const info = await ensureGrok();
+      grokAgent.setBaseUrl(info.baseUrl);
+    },
+  },
+  {
+    ...antigravityAgent,
+    async ensureRuntime(_directory) {
+      const info = await ensureAntigravity();
+      antigravityAgent.setBaseUrl(info.baseUrl);
     },
   },
 ];

@@ -1,13 +1,30 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 // @ts-expect-error type error without @types/node package
 import process from "node:process";
+
 const host = process.env.TAURI_DEV_HOST;
+const desktopRoot = path.dirname(fileURLToPath(import.meta.url));
+const repoRoot = path.resolve(desktopRoot, "../..");
 
 // https://vite.dev/config/
 export default defineConfig(() => ({
   plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      "@steer/agent-grok": path.resolve(
+        repoRoot,
+        "packages/agent-grok/src/index.ts",
+      ),
+      "@steer/agent-antigravity": path.resolve(
+        repoRoot,
+        "packages/agent-antigravity/src/index.ts",
+      ),
+    },
+  },
 
   // Vite options tailored for Tauri development and only applied in `tauri dev` or `tauri build`
   //
@@ -18,6 +35,9 @@ export default defineConfig(() => ({
     port: 1420,
     strictPort: true,
     host: host || false,
+    fs: {
+      allow: [repoRoot],
+    },
     hmr: host
       ? {
           protocol: "ws",

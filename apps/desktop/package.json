@@ -11,6 +11,9 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@steer/agent-antigravity": "workspace:*",
+    "@steer/agent-cursor": "workspace:*",
+    "@steer/agent-grok": "workspace:*",
     "@steer/agent-opencode": "workspace:*",
     "@steer/app-state": "workspace:*",
     "@steer/ports": "workspace:*",
