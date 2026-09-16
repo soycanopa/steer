@@ -123,6 +123,11 @@ export type SteerState = ProjectSlice &
     startPreview(): Promise<void>;
     stopPreview(): Promise<void>;
     reloadPreview(): void;
+    /**
+     * Tras Apply o si el iframe no alcanza el dev server: espera a que
+     * Vite responda y recarga; si sigue muerto, lo respawnea.
+     */
+    recoverPreview(opts?: { waitMs?: number }): Promise<void>;
     /** UX §4: modo del toolbar del preview. */
     setMode(mode: PreviewMode): void;
     /** Compat: I alterna inspect ↔ interact. */
@@ -228,6 +233,21 @@ function findTreeNodeBySource(
   return null;
 }
 
+function remapTweaksToTree(
+  tweaks: TweakDraft[],
+  tree: LayerNode[] | null,
+): { tweaks: TweakDraft[]; changed: boolean } {
+  if (tree == null) return { tweaks, changed: false };
+  let changed = false;
+  const next = tweaks.map((t) => {
+    const node = findTreeNodeBySource(tree, locKey(t.selection));
+    if (node == null || node.id === t.steerId) return t;
+    changed = true;
+    return { ...t, steerId: node.id };
+  });
+  return { tweaks: next, changed };
+}
+
 type AgentBlockPatch = Partial<{
   text: string;
   reasoning: string;
@@ -322,6 +342,14 @@ function applyWorkspaceSnapshot(
 function countBlocks(snap: WorkspaceSnapshot): number {
   const sessions = snap.intents?.sessions ?? [];
   return sessions.reduce((n, s) => n + (s.blocks?.length ?? 0), 0);
+}
+
+/** Chat, cola o tweaks: no pisar un workspace con trabajo por uno vacío. */
+function workspaceHasUserWork(snap: WorkspaceSnapshot): boolean {
+  const queue = snap.intents?.queue ?? [];
+  const tweaks = snap.selection?.tweaks ?? [];
+  const note = snap.intents?.draftNote?.trim() ?? "";
+  return countBlocks(snap) > 0 || queue.length > 0 || tweaks.length > 0 || note !== "";
 }
 
 export function createAppStore({ projectPort, previewPort, prefs, agents }: AppDeps) {
@@ -941,6 +969,41 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       scheduleTreeRequests();
     },
 
+    async recoverPreview(opts) {
+      const root = get().projectMeta?.root;
+      if (root == null) return;
+      const waitMs = opts?.waitMs ?? 12_000;
+      const deadline = Date.now() + waitMs;
+      while (true) {
+        let url: string | null = null;
+        try {
+          url = await projectPort.previewUrl(root);
+        } catch {
+          url = null;
+        }
+        if (url != null) {
+          if (get().previewStatus !== "live" || get().previewUrl == null) {
+            await get().startPreview();
+          } else {
+            get().reloadPreview();
+          }
+          return;
+        }
+        if (Date.now() >= deadline) break;
+        await new Promise<void>((resolve) => {
+          setTimeout(resolve, 400);
+        });
+      }
+      // Vite muerto de verdad: startPreview no-op si seguimos en "live".
+      set({
+        previewStatus: "starting",
+        previewUrl: null,
+        previewError: null,
+        tree: null,
+      });
+      await get().startPreview();
+    },
+
     setMode(mode) {
       const inspect = mode !== "interact";
       if (mode === "interact") {
@@ -1367,6 +1430,32 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           reasoning,
           tools: [...tools],
         });
+        const remainingQueue = get().queue.filter((i) => !sentIds.has(i.id));
+        const remainingTweaks = get().tweaks.filter((t) =>
+          remainingQueue.some(
+            (i) =>
+              i.kind === "tweak" &&
+              i.prop === t.prop &&
+              i.scope === t.scope &&
+              locKey(i.selection) === locKey(t.selection),
+          ),
+        );
+        const remainingLog = get().tweakLog.filter((e) =>
+          remainingTweaks.some(
+            (t) =>
+              t.steerId === e.steerId &&
+              t.scope === e.scope &&
+              t.prop === e.prop,
+          ),
+        );
+        set({
+          agentBusy: false,
+          queue: remainingQueue,
+          tweaks: remainingTweaks,
+          tweakLog: remainingLog,
+          draftNote: "",
+          draftAttachments: [],
+        });
         const root = get().projectMeta?.root;
         if (root != null) {
           captureCurrentWorkspace(get, (r) => schedulePersistProjectWorkspace(r));
@@ -1376,16 +1465,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           payload.intents.length > 0 ||
           tools.some((t) => t.status === "end");
         if (previewStatus === "live" && agentChangedProject) {
-          get().reloadPreview();
-          scheduleTreeRequests();
+          void get().recoverPreview();
         }
         void get().refreshProjectRoutes();
-        set({
-          agentBusy: false,
-          queue: get().queue.filter((i) => !sentIds.has(i.id)),
-          draftNote: "",
-          draftAttachments: [],
-        });
         syncEditPins();
         const expected = payload.intents
           .filter(
@@ -1982,8 +2064,6 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         selection: null,
         selectedId: null,
         hoverSelection: null,
-        tweaks: [],
-        tweakLog: [],
         reloadNonce: get().reloadNonce + 1,
       });
     },
@@ -2017,10 +2097,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     if (snap == null) return;
     // Guard anti-sobrescritura: no reemplazar un workspace con historial por
     // uno vacío (evita pérdidas por resets transitorios).
-    const blocks = countBlocks(snap);
-    if (blocks === 0) {
+    if (!workspaceHasUserWork(snap)) {
       const existing = await prefs.getProjectWorkspace(root);
-      if (existing != null && countBlocks(existing) > 0) return;
+      if (existing != null && workspaceHasUserWork(existing)) return;
     }
     await prefs.setProjectWorkspace(root, snap);
   };
@@ -2041,7 +2120,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     if (
       state.sessions !== prev.sessions ||
       state.activeSessionId !== prev.activeSessionId ||
-      state.draftNote !== prev.draftNote
+      state.draftNote !== prev.draftNote ||
+      state.draftAttachments !== prev.draftAttachments ||
+      state.queue !== prev.queue ||
+      state.nextPin !== prev.nextPin ||
+      state.tweaks !== prev.tweaks ||
+      state.tweakLog !== prev.tweakLog
     ) {
       snapshotWorkspace(root, state);
       schedulePersistProjectWorkspace(root);
@@ -2072,10 +2156,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
   previewPort.subscribe((msg) => {
     switch (msg.type) {
       case "steer:ready": {
-        // Iframe nuevo: reponer modo (comment/inspect/interact). Los
-        // overrides son efímeros y mueren con el documento.
+        // Iframe nuevo: reponer modo. Overlay CSS muere con el documento;
+        // la cola y los drafts viven en app-state hasta Apply.
         const st = store.getState();
         previewPort.setMode(st.mode);
+        if (st.tweaks.length > 0) {
+          previewPort.setOverrides(buildOverrides(st.tweaks));
+        }
         scheduleTreeRequests();
         break;
       }
@@ -2107,20 +2194,29 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         store.setState({ hoverSelection: msg.selection });
         break;
       case "steer:navigate":
-        // UX §5.9: la cola de intents (Fase E) se conservará; los drafts
-        // de override son del documento anterior y se limpian.
+        // UX §5.9: overlay del documento anterior muere con el iframe;
+        // cola y drafts se conservan hasta Apply y se rehidratan con el tree.
         clearMismatchCheck();
         store.setState({
           previewPath: msg.href,
           selection: null,
           selectedId: null,
           hoverSelection: null,
-          tweaks: [],
-          tweakLog: [],
         });
         break;
       case "steer:tree": {
-        store.setState({ tree: msg.nodes });
+        const remapped = remapTweaksToTree(store.getState().tweaks, msg.nodes);
+        store.setState(
+          remapped.changed
+            ? { tree: msg.nodes, tweaks: remapped.tweaks }
+            : { tree: msg.nodes },
+        );
+        const tweaks = remapped.changed
+          ? remapped.tweaks
+          : store.getState().tweaks;
+        if (tweaks.length > 0) {
+          previewPort.setOverrides(buildOverrides(tweaks));
+        }
         for (const i of store.getState().queue) {
           if (i.kind !== "comment") continue;
           const node = findTreeNodeBySource(msg.nodes, locKey(i.selection));

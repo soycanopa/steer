@@ -384,8 +384,8 @@ export default function App() {
               iframeKey={`${previewUrl ?? "none"}#${reloadNonce}`}
               mode={mode}
               onSetMode={(m) => store.getState().setMode(m)}
-              onReload={() => store.getState().reloadPreview()}
-              onRetry={() => void store.getState().startPreview()}
+              onReload={() => void store.getState().recoverPreview({ waitMs: 0 })}
+              onRetry={() => void store.getState().recoverPreview({ waitMs: 0 })}
               onCapture={() => store.getState().capturePreview()}
               pages={projectRoutes.map((route) => ({
                 ...route,

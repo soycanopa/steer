@@ -151,7 +151,7 @@ Cambiar modelo no reinicia sesión en P0 (OpenCode acepta model per message). Si
 
 ### 5.9 Perder el preview
 
-Navigate dentro del iframe: el bridge manda `steer:navigate`. Steer actualiza el chip de ruta. Overrides se limpian (son del documento anterior). Selección se limpia. Cola de intents *se conserva* (el usuario puede haber preparado un lote).
+Navigate dentro del iframe: el bridge manda `steer:navigate`. Steer actualiza el chip de ruta. El overlay CSS del documento anterior muere con el iframe. Selección se limpia. Cola de intents y drafts (tweaks y comentarios) *se conservan* hasta Apply; al recargar el preview se rehidratan si el nodo sigue en el árbol.
 
 Reload manual: botón en titlebar.
 
