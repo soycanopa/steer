@@ -184,6 +184,49 @@ export function oklchToHex(value: string): string | null {
 
 export type TextAlignValue = "left" | "center" | "right" | "justify";
 
+/**
+ * UX §5.6: el preview “se acerca” al tweak si computed y `to` coinciden
+ * en número (px), color (hex) o keyword (align / display).
+ */
+export function computedMatchesTweak(
+  prop: TweakProp,
+  computed: string | undefined,
+  to: string,
+): boolean {
+  if (computed === undefined) return false;
+  const a = computed.trim();
+  const b = to.trim();
+  if (a === "" || b === "") return false;
+  if (a === b) return true;
+
+  const hexA = colorToHex(a);
+  const hexB = colorToHex(b);
+  if (hexA !== null && hexB !== null) return hexA === hexB;
+
+  const alignA = alignFromComputed(a);
+  const alignB = alignFromComputed(b);
+  if (alignA !== null && alignB !== null) return alignA === alignB;
+
+  if (
+    prop === "padding" ||
+    prop === "margin" ||
+    prop === "gap" ||
+    prop === "borderRadius"
+  ) {
+    const boxA = parseBoxValues(a);
+    const boxB = parseBoxValues(b);
+    return boxA.every((v, i) => Math.abs(v - (boxB[i] ?? 0)) < 1.5);
+  }
+
+  const na = numFromPx(a) ?? Number.parseFloat(a);
+  const nb = numFromPx(b) ?? Number.parseFloat(b);
+  if (Number.isFinite(na) && Number.isFinite(nb)) {
+    return Math.abs(na - nb) < 1.5;
+  }
+
+  return a.replace(/\s+/g, " ").toLowerCase() === b.replace(/\s+/g, " ").toLowerCase();
+}
+
 /** computed "start"/"end" → left/right (best-effort). */
 export function alignFromComputed(
   value: string | undefined,
