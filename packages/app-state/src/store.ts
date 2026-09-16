@@ -294,6 +294,27 @@ function findLastStartIndex(
   return -1;
 }
 
+/** OpenCode reenvía pending/running del mismo part id; no apilar filas. */
+function upsertTool(tools: TranscriptTool[], incoming: TranscriptTool): void {
+  if (incoming.id != null && incoming.id !== "") {
+    for (let i = 0; i < tools.length; i += 1) {
+      const t = tools[i];
+      if (t === undefined || t.id !== incoming.id) continue;
+      if (t.status === "end" && incoming.status === "start") return;
+      tools[i] = incoming;
+      return;
+    }
+  }
+  if (incoming.status === "end") {
+    const idx = findLastStartIndex(tools, incoming.name, incoming.id);
+    if (idx >= 0) {
+      tools[idx] = incoming;
+      return;
+    }
+  }
+  tools.push(incoming);
+}
+
 /** AGENTS regla 6: Apply solo con data-tsd-source real (file !== ""). */
 function queueHasMissingSource(queue: Intent[]): boolean {
   return queue.some(
@@ -362,6 +383,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
   let savedAgentPrefs: AgentPrefs | null = null;
   let previewStartTask: Promise<void> | null = null;
   let agentTurnInFlight = false;
+  /** Intents enviados en el turno actual; se reponen si falla o aborta. */
+  let heldForTurn: Intent[] | null = null;
   let treeRequestTimers: ReturnType<typeof setTimeout>[] = [];
   let mismatchTimer: ReturnType<typeof setTimeout> | null = null;
   let mismatchToastTimer: ReturnType<typeof setTimeout> | null = null;
@@ -373,6 +396,16 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
   const MISMATCH_TOAST =
     "el agente terminó; el preview no refleja el tweak — revisa el diff";
+
+  function restoreHeldQueue(): void {
+    if (heldForTurn == null) return;
+    const held = heldForTurn;
+    heldForTurn = null;
+    const heldIds = new Set(held.map((i) => i.id));
+    store.setState((s) => ({
+      queue: [...held, ...s.queue.filter((i) => !heldIds.has(i.id))],
+    }));
+  }
 
   function clearMismatchCheck(): void {
     if (mismatchTimer !== null) {
@@ -1358,8 +1391,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
       agentTurnInFlight = true;
 
-      // TRD §5: la cola no se vacía hasta done con éxito. Doble apply: agentBusy.
-      // El composer se limpia al enviar; la cola de intents se conserva hasta done.
+      // El lote ya está en el transcript: el chip del composer no debe
+      // seguir encima. Si el turno falla o se aborta, se reponen.
+      heldForTurn = [...queue];
       set({
         sessions: get().sessions.map((s) =>
           s.id !== get().activeSessionId
@@ -1373,6 +1407,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         agentBusy: true,
         draftNote: "",
         draftAttachments: [],
+        queue: [],
       });
 
       const sessionId = get().sessions.find((s) => s.id === get().activeSessionId)
@@ -1430,6 +1465,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           reasoning,
           tools: [...tools],
         });
+        heldForTurn = null;
         const remainingQueue = get().queue.filter((i) => !sentIds.has(i.id));
         const remainingTweaks = get().tweaks.filter((t) =>
           remainingQueue.some(
@@ -1532,24 +1568,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               break;
             case "tool": {
               flushStreamNow();
-              if (ev.status === "start") {
-                tools.push({
-                  id: ev.id,
-                  name: ev.name,
-                  status: "start",
-                  detail: ev.detail,
-                });
-              } else {
-                const idx = findLastStartIndex(tools, ev.name, ev.id);
-                const entry: TranscriptTool = {
-                  id: ev.id,
-                  name: ev.name,
-                  status: "end",
-                  detail: ev.detail,
-                };
-                if (idx >= 0) tools[idx] = entry;
-                else tools.push(entry);
-              }
+              upsertTool(tools, {
+                id: ev.id,
+                name: ev.name,
+                status: ev.status === "start" ? "start" : "end",
+                detail: ev.detail,
+              });
               patchAgentBlock(agentBlockId, { tools: [...tools] });
               break;
             }
@@ -1616,6 +1640,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                   status: "error",
                   text: "El agente espera un permiso y no se pudo responder.",
                 });
+                restoreHeldQueue();
                 set({ agentBusy: false });
                 return;
               }
@@ -1643,6 +1668,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                       ? err.message
                       : "No se pudo aceptar el permiso.",
                 });
+                restoreHeldQueue();
                 set({ agentBusy: false });
                 return;
               }
@@ -1667,6 +1693,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                 status: "error",
                 text: text === "" ? ev.message : `${text}\n\n${ev.message}`,
               });
+              restoreHeldQueue();
               set({ agentBusy: false });
               return;
             default:
@@ -1682,6 +1709,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           status: "error",
           text: err instanceof Error ? err.message : String(err),
         });
+        restoreHeldQueue();
         set({ agentBusy: false });
       } finally {
         agentTurnInFlight = false;
@@ -1698,6 +1726,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         sessions.find((s) => s.id === activeSessionId)?.agentSessionId ?? null;
       await primaryAgent.abort(sessionId);
       clearMismatchCheck();
+      restoreHeldQueue();
       set({ agentBusy: false });
     },
 
