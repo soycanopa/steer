@@ -43,7 +43,6 @@
   var commentMode = false;
   var selectedEl = null;
   var selectedId = null;
-  var steerCounter = 0;
 
   var hoverBox = null;
   var hoverLabel = null;
@@ -363,13 +362,11 @@
   // Ruta común de selección: click en canvas o click en el árbol de capas.
   function selectElement(el) {
     selectedEl = el;
-    if (!selectedEl.getAttribute("data-steer-id")) {
-      steerCounter += 1;
-      selectedId = "s" + steerCounter.toString(36);
-      selectedEl.setAttribute("data-steer-id", selectedId);
-    } else {
-      selectedId = selectedEl.getAttribute("data-steer-id");
-    }
+    // Mismo id que el árbol de capas (`n…`). Si el pin usa `s…` y el
+    // tree rehidrata con `n…`, positionPins no encuentra el nodo y
+    // esconde el círculo (el chat sí muestra el comentario).
+    selectedId = nodeId(el);
+    selectedEl.setAttribute("data-steer-id", selectedId);
     ensureOverlayNodes();
     place(selectBox, el);
     if (commentMode) {
@@ -1135,11 +1132,24 @@
   var commentSave = null;
   var commentEditing = null; // { intentId, steerId }
 
+  function pinTarget(steerId) {
+    if (!steerId) return null;
+    var el = document.querySelector('[data-steer-id="' + steerId + '"]');
+    if (!el && treeIndex && treeIndex[steerId]) {
+      el = treeIndex[steerId];
+    }
+    if (!el || !el.isConnected) return null;
+    if (el.getAttribute("data-steer-id") !== steerId) {
+      el.setAttribute("data-steer-id", steerId);
+    }
+    return el;
+  }
+
   function positionPins() {
     for (var id in pins) {
       if (!Object.prototype.hasOwnProperty.call(pins, id)) continue;
       var pin = pins[id];
-      var el = document.querySelector('[data-steer-id="' + pin.steerId + '"]');
+      var el = pinTarget(pin.steerId);
       if (!el) {
         pin.badge.style.display = "none";
         continue;
@@ -1155,13 +1165,7 @@
 
   function addPin(intentId, steerId, number, body) {
     removePin(intentId);
-    var target = document.querySelector('[data-steer-id="' + steerId + '"]');
-    if (!target && treeIndex && treeIndex[steerId]) {
-      target = treeIndex[steerId];
-      if (target && !target.getAttribute("data-steer-id")) {
-        target.setAttribute("data-steer-id", steerId);
-      }
-    }
+    var target = pinTarget(steerId);
     var badge = document.createElement("button");
     badge.type = "button";
     badge.setAttribute("data-steer-pin", intentId);
@@ -1177,9 +1181,7 @@
     badge.addEventListener("click", function (e) {
       e.preventDefault();
       e.stopPropagation();
-      var clickTarget =
-        document.querySelector('[data-steer-id="' + steerId + '"]') ||
-        (treeIndex && treeIndex[steerId]);
+      var clickTarget = pinTarget(steerId);
       if (clickTarget) selectElement(clickTarget);
       showCommentPopover(
         clickTarget || document.body,
@@ -1343,7 +1345,7 @@
   function focusPin(intentId) {
     var pin = pins[intentId];
     if (!pin) return;
-    var el = document.querySelector('[data-steer-id="' + pin.steerId + '"]');
+    var el = pinTarget(pin.steerId);
     if (el) selectElement(el);
     showCommentPopover(el || document.body, pin.body || "", intentId, pin.steerId);
   }
