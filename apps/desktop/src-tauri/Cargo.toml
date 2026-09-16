@@ -1,6 +1,6 @@
 [package]
 name = "steer-desktop"
-version = "0.1.0"
+version = "0.2.0"
 description = "Steer — dirige el diseño; el agente escribe el código"
 authors = ["Steer"]
 edition = "2021"
