@@ -193,7 +193,7 @@ function LayersTree({
     return (
       <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
         {treeState === "empty"
-          ? "Esta página no tiene nodos con source. Activa TanStack Devtools en el proyecto."
+          ? "No hay capas con source en esta página. Si el preview muestra un error, recárgalo; si no, activa TanStack Devtools."
           : "Sin capas en esta página."}
       </p>
     );
