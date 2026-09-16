@@ -3,6 +3,9 @@
 
 use tauri::Manager;
 
+mod antigravity;
+mod cursor;
+mod grok;
 mod devserver;
 mod host;
 mod opencode;
@@ -20,6 +23,9 @@ pub fn run() {
         .plugin(tauri_plugin_store::Builder::new().build())
         .manage(devserver::new_map())
         .manage(opencode::new_handle())
+        .manage(cursor::new_handle())
+        .manage(grok::new_handle())
+        .manage(antigravity::new_handle())
         .manage(proxy::new_handle())
         .invoke_handler(tauri::generate_handler![
             project::project_open,
@@ -34,6 +40,9 @@ pub fn run() {
             devserver::project_preview_url,
             snapshot::window_snapshot,
             opencode::opencode_ensure,
+            cursor::cursor_ensure,
+            grok::grok_ensure,
+            antigravity::antigravity_ensure,
             prefs::prefs_get_last_project,
             prefs::prefs_set_last_project,
             prefs::prefs_get_open_project_tabs,
