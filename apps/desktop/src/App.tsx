@@ -341,7 +341,7 @@ export default function App() {
 
   const recents = recentProjects.map((path) => ({
     path,
-    name: projectMeta?.root === path ? projectMeta.name : lastFolderName(path),
+    name: lastFolderName(path),
     active: projectMeta?.root === path,
     // El activo ya tiene su preview vivo (oculto en el home): su card usa
     // thumbnail para no duplicar la carga.
