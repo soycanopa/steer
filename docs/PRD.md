@@ -107,6 +107,7 @@ P1 (después del loop P0, no antes):
 - Diff del turno (vía `AgentPort`, no vía fetch OpenCode en UI)
 - Permisos del agente (accept / deny) si el port los emite
 - Segundo adapter (`packages/agent-grok` o `agent-claude`) registrando el mismo `AgentPort`
+- Inventario de componentes del proyecto (archivos en `src/components` u homólogo): ver lo que el agente creó o reutilizó. No paleta tipo Figma, no drag & drop de primitivas, no canvas de frames vacíos. Una lista; el preview sigue siendo la página viva.
 
 P2 — **Vistas** (decisión 2026-09-16, spec en [VISTAS.md](./VISTAS.md)):
 
