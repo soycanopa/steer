@@ -2,11 +2,13 @@
 // nada aquí sabe qué es un dev server ni un provider. Sepa matar un
 // árbol de procesos y capturar líneas; el resto vive en devserver.rs.
 
+use std::fs;
 use std::io::BufRead;
 use std::io::BufReader;
 use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::net::ToSocketAddrs;
+use std::path::Path;
 use std::process::Child;
 use std::process::Command;
 use std::process::Stdio;
@@ -54,6 +56,61 @@ pub fn port_open(port: u16) -> bool {
             TcpStream::connect_timeout(&addr, Duration::from_millis(400)).is_ok()
         })
         .unwrap_or(false)
+}
+
+/// ¿El pid (líder del process group que Steer spawnó) sigue vivo?
+pub fn pid_alive(pid: i32) -> bool {
+    if pid <= 0 {
+        return false;
+    }
+    #[cfg(unix)]
+    {
+        // SAFETY: señal 0 solo comprueba existencia; no mata.
+        unsafe { libc::kill(pid, 0) == 0 }
+    }
+    #[cfg(not(unix))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// cwd del proceso. En macOS via `lsof`; en Linux `/proc`.
+pub fn pid_cwd(pid: i32) -> Option<std::path::PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        let output = Command::new("lsof")
+            .args(["-a", "-p", &pid.to_string(), "-d", "cwd", "-Fn"])
+            .output()
+            .ok()?;
+        if !output.status.success() {
+            return None;
+        }
+        String::from_utf8_lossy(&output.stdout)
+            .lines()
+            .find_map(|line| line.strip_prefix('n').map(std::path::PathBuf::from))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        std::fs::read_link(format!("/proc/{pid}/cwd")).ok()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux")))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
+/// El proceso trabaja en `dir` (el proyecto), no en otro scaffold.
+pub fn process_owns_dir(pid: i32, dir: &Path) -> bool {
+    let Ok(want) = fs::canonicalize(dir) else {
+        return false;
+    };
+    let Some(cwd) = pid_cwd(pid) else {
+        return false;
+    };
+    let cwd = fs::canonicalize(&cwd).unwrap_or(cwd);
+    cwd == want || cwd.starts_with(&want)
 }
 
 /// Ejecuta un comando capturando stdout/stderr en vivo.
