@@ -192,6 +192,8 @@ type ParentToFrame =
   | { type: "steer:clear-pins" }
   // Capas (Fase layers): seleccionar un nodo desde el árbol.
   | { type: "steer:select-node"; id: string }
+  | { type: "steer:select-source"; source: SourceLoc }
+  | { type: "steer:select-ancestor" }
   // Cámara: selección de área (click = viewport completo) y captura silenciosa.
   | { type: "steer:capture" }
   | { type: "steer:capture-thumbnail" };

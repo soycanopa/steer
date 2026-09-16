@@ -543,6 +543,44 @@
     if (el && el.isConnected) selectElement(el);
   }
 
+  function sourceKey(loc) {
+    return loc.file + ":" + loc.line + ":" + loc.col;
+  }
+
+  function findBySource(source) {
+    if (!source || !source.file) return null;
+    var want = source.file + ":" + source.line + ":" + source.col;
+    var nodes = document.querySelectorAll("[" + SOURCE_ATTR + "]");
+    for (var i = 0; i < nodes.length; i++) {
+      var loc = parseSource(nodes[i]);
+      if (loc.file && sourceKey(loc) === want) return nodes[i];
+    }
+    return null;
+  }
+
+  function selectBySource(source) {
+    var el = findBySource(source);
+    if (el) selectElement(el);
+  }
+
+  /** UX §5.3: click en el nombre del componente sube al host con source distinto. */
+  function selectAncestor() {
+    if (!selectedEl) return;
+    var current = parseSource(selectedEl);
+    if (!current.file) return;
+    var host =
+      selectedEl.closest && selectedEl.closest("[" + SOURCE_ATTR + "]");
+    var n = host && host.parentElement ? host.parentElement : selectedEl.parentElement;
+    while (n && n !== document.documentElement) {
+      var loc = parseSource(n);
+      if (loc.file && sourceKey(loc) !== sourceKey(current)) {
+        selectElement(n);
+        return;
+      }
+      n = n.parentElement;
+    }
+  }
+
   // Cámara: pinta el viewport a canvas (colores, radios, imágenes, texto).
   // foreignObject+cloneNode no sirve: en WKWebView/Tauri el CSS de Tailwind
   // no entra al SVG y la captura sale como texto pelado.
@@ -1416,6 +1454,12 @@
         break;
       case "steer:select-node":
         selectNode(msg.id);
+        break;
+      case "steer:select-source":
+        selectBySource(msg.source);
+        break;
+      case "steer:select-ancestor":
+        selectAncestor();
         break;
       case "steer:clear-pins":
         clearPins();

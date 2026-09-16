@@ -162,6 +162,8 @@ export type PreviewPort = {
   addPin(intentId: string, steerId: string, number: number): void;
   removePin(intentId: string): void;
   clearPins(): void;
+  selectBySource(source: SourceLoc): void;
+  selectAncestor(): void;
   /** Snapshot del preview (nativo WKWebView, fallback bridge) para el home. */
   captureThumbnail(): Promise<string | null>;
   subscribe(handler: (msg: FrameToParent) => void): () => void;

@@ -29,6 +29,10 @@ export type ParentToFrame =
   | { type: "steer:remove-pin"; intentId: string }
   | { type: "steer:clear-pins" }
   | { type: "steer:select-node"; id: string }
+  /** Reselecciona el nodo con este source (post-HMR / toast). */
+  | { type: "steer:select-source"; source: SourceLoc }
+  /** Sube al host con data-tsd-source distinto (breadcrumb). */
+  | { type: "steer:select-ancestor" }
   | { type: "steer:focus-pin"; intentId: string }
   | { type: "steer:capture" }
   /** Captura silenciosa (sin overlay) para el thumbnail del home. */
@@ -64,6 +68,8 @@ export type PreviewPort = {
   removePin(intentId: string): void;
   clearPins(): void;
   selectNode(id: string): void;
+  selectBySource(source: SourceLoc): void;
+  selectAncestor(): void;
   focusPin(intentId: string): void;
   capture(): void;
   /**
