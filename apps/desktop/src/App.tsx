@@ -67,6 +67,7 @@ export default function App() {
   const previewUrl = useStore(store, (s) => s.previewUrl);
   const previewPath = useStore(store, (s) => s.previewPath);
   const previewError = useStore(store, (s) => s.previewError);
+  const previewMismatch = useStore(store, (s) => s.previewMismatch);
   const reloadNonce = useStore(store, (s) => s.reloadNonce);
   const inspectOn = useStore(store, (s) => s.inspectOn);
   const mode = useStore(store, (s) => s.mode);
@@ -239,8 +240,8 @@ export default function App() {
     }
   }, [workspaceView]);
 
-  // UX.md §7: ⌘O abre · ⌘Z undo local · ⌘Enter aplica · I Inspect ·
-  // C comentarios · V interactuar · Esc deselecciona.
+  // UX.md §7: ⌘O abre · ⌘L composer · ⌘Z undo local · ⌘Enter aplica ·
+  // I toggle Inspect · C comentarios · V interactuar · Esc deselecciona.
   useEffect(() => {
     const isTyping = (e: KeyboardEvent) => {
       const t = e.target;
@@ -261,6 +262,12 @@ export default function App() {
         store.getState().undoLastTweak();
         return;
       }
+      if (e.metaKey && e.key.toLowerCase() === "l") {
+        e.preventDefault();
+        const composer = document.querySelector("[data-steer-composer]");
+        if (composer instanceof HTMLElement) composer.focus();
+        return;
+      }
       if (e.metaKey && e.key === ".") {
         e.preventDefault();
         setDebugOpen((v) => !v);
@@ -274,7 +281,7 @@ export default function App() {
       if (isTyping(e)) return;
       if (e.metaKey || e.ctrlKey || e.altKey) return;
       if (e.key.toLowerCase() === "i") {
-        store.getState().setMode("inspect");
+        store.getState().toggleInspect();
       } else if (e.key.toLowerCase() === "c") {
         store.getState().setMode("comment");
       } else if (e.key.toLowerCase() === "v") {
@@ -410,6 +417,8 @@ export default function App() {
               onLayersWidthChange={setLayersWidth}
               chatOpen={chatOpen}
               onToggleChat={() => store.getState().toggleChat()}
+              mismatchToast={previewMismatch}
+              onDismissMismatch={() => store.getState().dismissPreviewMismatch()}
               sidePanel={
                 inspectorVisible ? (
                   <InspectorPanel
@@ -420,6 +429,7 @@ export default function App() {
                     onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
                     onResetTweak={(prop) => store.getState().resetTweak(prop)}
                     onResetAll={() => store.getState().resetAllTweaks()}
+                    onSelectAncestor={() => store.getState().selectAncestor()}
                     onClose={() => store.getState().deselect()}
                   />
                 ) : chatOpen && activeSession !== null ? (

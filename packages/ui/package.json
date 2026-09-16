@@ -8,7 +8,7 @@
     "./tokens.css": "./src/styles/tokens.css"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit && node scripts/check-imports.mjs"
   },
   "dependencies": {
     "@steer/domain": "workspace:*",

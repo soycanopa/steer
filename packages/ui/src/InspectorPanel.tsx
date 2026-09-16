@@ -40,6 +40,16 @@ import {
   weightValue,
 } from "@steer/domain";
 
+const DEVTOOLS_SNIPPET = `import { devtools } from "@tanstack/devtools-vite";
+
+export default defineConfig({
+  plugins: [
+    devtools(),
+    // vite react / tanstack start
+  ],
+});
+`;
+
 export type TweakView = {
   prop: TweakProp;
   from: string;
@@ -55,6 +65,8 @@ export type InspectorPanelProps = {
   onResetTweak(prop: TweakProp): void;
   onResetAll(): void;
   onClose?(): void;
+  /** UX §5.3: click en un tramo del breadcrumb que no es el nodo actual. */
+  onSelectAncestor?(): void;
 };
 
 export function InspectorPanel({
@@ -66,6 +78,7 @@ export function InspectorPanel({
   onResetTweak,
   onResetAll,
   onClose,
+  onSelectAncestor,
 }: InspectorPanelProps) {
   if (selection === null) {
     return null;
@@ -83,7 +96,10 @@ export function InspectorPanel({
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
         <p className="flex min-w-0 items-center text-[13px] text-[var(--text-1)]">
           {(selection.breadcrumb.length ? selection.breadcrumb : [selection.tag]).map(
-            (part, i) => (
+            (part, i, parts) => {
+              const last = i === parts.length - 1;
+              const climb = !last && onSelectAncestor != null;
+              return (
               <span key={`${part}-${i}`} className="flex min-w-0 items-center">
                 {i > 0 ? (
                   <ChevronRight
@@ -92,17 +108,29 @@ export function InspectorPanel({
                     className="mx-0.5 shrink-0 text-[var(--text-2)]"
                   />
                 ) : null}
+                {climb ? (
+                  <button
+                    type="button"
+                    title="Subir al host del componente"
+                    onClick={onSelectAncestor}
+                    className="truncate hover:text-[var(--text-0)] hover:underline"
+                  >
+                    {part}
+                  </button>
+                ) : (
                 <span
                   className={
-                    i === (selection.breadcrumb.length || 1) - 1
+                    last
                       ? "truncate text-[var(--text-0)]"
                       : "truncate"
                   }
                 >
                   {part}
                 </span>
+                )}
               </span>
-            ),
+              );
+            },
           )}
         </p>
         <PathRow selection={selection} />
@@ -684,15 +712,32 @@ function AlignItemsBar({ value, onSet }: { value: string; onSet(v: string): void
 }
 
 function PathRow({ selection }: { selection: Selection }) {
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"path" | "snippet" | null>(null);
   const path = selection.source.file
     ? `${selection.source.file}:${selection.source.line}`
     : null;
   if (path === null) {
     return (
-      <p className="rounded-[6px] bg-[var(--warn)]/10 px-2 py-1 font-mono text-[11px] text-[var(--warn)]">
-        Sin data-tsd-source — activa TanStack Devtools source injection
-      </p>
+      <div className="flex flex-col gap-1.5 rounded-[6px] bg-[var(--warn)]/10 px-2 py-1.5">
+        <p className="font-mono text-[11px] text-[var(--warn)]">
+          Sin data-tsd-source — activa TanStack Devtools source injection
+        </p>
+        <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10px] text-[var(--text-1)]">
+          {DEVTOOLS_SNIPPET}
+        </pre>
+        <button
+          type="button"
+          onClick={() => {
+            void navigator.clipboard.writeText(DEVTOOLS_SNIPPET).then(() => {
+              setCopied("snippet");
+              window.setTimeout(() => setCopied(null), 1200);
+            });
+          }}
+          className="w-fit text-[11px] text-[var(--warn)] hover:underline"
+        >
+          {copied === "snippet" ? "snippet copiado ✓" : "Copiar snippet Devtools"}
+        </button>
+      </div>
     );
   }
   return (
@@ -701,13 +746,13 @@ function PathRow({ selection }: { selection: Selection }) {
       title="Click para copiar"
       onClick={() => {
         void navigator.clipboard.writeText(path).then(() => {
-          setCopied(true);
-          window.setTimeout(() => setCopied(false), 1200);
+          setCopied("path");
+          window.setTimeout(() => setCopied(null), 1200);
         });
       }}
       className="w-fit font-mono text-[11px] text-[var(--text-2)] hover:text-[var(--text-0)]"
     >
-      {copied ? "copiado ✓" : path}
+      {copied === "path" ? "copiado ✓" : path}
     </button>
   );
 }

@@ -1293,6 +1293,7 @@ function Composer({
       ) : null}
       <textarea
         ref={ref}
+        data-steer-composer=""
         rows={3}
         value={value}
         placeholder="Nota opcional… (el envío manda comentarios + cola al agente)"

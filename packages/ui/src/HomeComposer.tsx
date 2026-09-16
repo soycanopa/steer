@@ -179,6 +179,7 @@ export function HomeComposer({
 
       <textarea
         ref={ref}
+        data-steer-composer=""
         rows={3}
         value={prompt}
         disabled={creating}

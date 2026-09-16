@@ -78,6 +78,9 @@ export type PreviewFrameProps = {
   onLayersWidthChange?(w: number): void;
   minLayersWidth?: number;
   maxLayersWidth?: number;
+  /** UX §5.6 / UI.md §7: toast 3.5s esquina del preview. */
+  mismatchToast?: string | null;
+  onDismissMismatch?(): void;
   chatOpen?: boolean;
   onToggleChat?(): void;
   /** Panel lateral derecho (chat o inspector; uno a la vez). */
@@ -299,6 +302,8 @@ export function PreviewFrame({
   maxLayersWidth = 480,
   chatOpen = false,
   onToggleChat,
+  mismatchToast = null,
+  onDismissMismatch,
   sidePanel = null,
   sidePanelWidth = 320,
   onSidePanelWidthChange,
@@ -538,7 +543,7 @@ export function PreviewFrame({
 
           <div className="flex min-h-0 flex-1 justify-center overflow-hidden rounded-[var(--radius-s)] bg-[var(--bg-0)]">
           <div
-            className="h-full w-full shrink-0 overflow-hidden rounded-[var(--radius-s)] bg-[var(--bg-0)] transition-[width] duration-200 ease-out"
+            className="relative h-full w-full shrink-0 overflow-hidden rounded-[var(--radius-s)] bg-[var(--bg-0)] transition-[width] duration-200 ease-out"
             style={{
               width: viewportWidth == null ? "100%" : `${viewportWidth}px`,
               maxWidth: "100%",
@@ -559,6 +564,23 @@ export function PreviewFrame({
             ) : (
               <PreviewIdle />
             )}
+            {mismatchToast != null && mismatchToast !== "" ? (
+              <div
+                role="status"
+                className="absolute right-3 bottom-3 z-10 max-w-[min(360px,calc(100%-1.5rem))] rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-1)] px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-0)] shadow-[0_8px_24px_rgba(0,0,0,0.35)]"
+              >
+                <p>{mismatchToast}</p>
+                {onDismissMismatch ? (
+                  <button
+                    type="button"
+                    onClick={onDismissMismatch}
+                    className="mt-1 text-[length:var(--fs-0)] text-[var(--text-2)] hover:text-[var(--text-0)]"
+                  >
+                    Cerrar
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
           </div>
         </div>
