@@ -7,10 +7,12 @@ import type {
   Intent,
   OverlayOverride,
   Scope,
+  SourceLoc,
   TweakProp,
 } from "@steer/domain";
 import {
   buildApplyPayload,
+  computedMatchesTweak,
   enqueueComment,
   enqueueTweak,
   removeIntent,
@@ -129,6 +131,10 @@ export type SteerState = ProjectSlice &
     capturePreview(): void;
     addAttachment(att: Omit<ChatAttachment, "id">): void;
     removeAttachment(id: string): void;
+    /** UX §5.3: click en breadcrumb (componente) sube al host con source distinto. */
+    selectAncestor(): void;
+    /** UX §5.6: cierra el toast de preview vs tweak. */
+    dismissPreviewMismatch(): void;
     /** UX §5.3: Esc o click vacío deselecciona, no apaga Inspect. */
     deselect(): void;
     /** UX §5.3: Instancia vs Componente. */
@@ -329,6 +335,51 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
   let previewStartTask: Promise<void> | null = null;
   let agentTurnInFlight = false;
   let treeRequestTimers: ReturnType<typeof setTimeout>[] = [];
+  let mismatchTimer: ReturnType<typeof setTimeout> | null = null;
+  let mismatchToastTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingMismatch: Array<{
+    prop: TweakProp;
+    to: string;
+    source: SourceLoc;
+  }> | null = null;
+
+  const MISMATCH_TOAST =
+    "el agente terminó; el preview no refleja el tweak — revisa el diff";
+
+  function clearMismatchCheck(): void {
+    if (mismatchTimer !== null) {
+      clearTimeout(mismatchTimer);
+      mismatchTimer = null;
+    }
+    pendingMismatch = null;
+  }
+
+  function showMismatchToast(): void {
+    store.setState({ previewMismatch: MISMATCH_TOAST });
+    if (mismatchToastTimer !== null) clearTimeout(mismatchToastTimer);
+    mismatchToastTimer = setTimeout(() => {
+      mismatchToastTimer = null;
+      store.setState({ previewMismatch: null });
+    }, 3500);
+  }
+
+  /** UX §5.6: a los 2s releer computed del nodo y tostar si no se acerca. */
+  function scheduleMismatchCheck(
+    tweaks: Array<{ prop: TweakProp; to: string; source: SourceLoc }>,
+  ): void {
+    clearMismatchCheck();
+    if (tweaks.length === 0 || tweaks[0] === undefined) return;
+    const source = tweaks[0].source;
+    if (source.file === "") return;
+    mismatchTimer = setTimeout(() => {
+      mismatchTimer = null;
+      pendingMismatch = tweaks;
+      previewPort.selectBySource(source);
+      setTimeout(() => {
+        if (pendingMismatch !== null) pendingMismatch = null;
+      }, 800);
+    }, 2000);
+  }
   let thumbnailTimer: ReturnType<typeof setTimeout> | null = null;
 
   function clearTreeRequestTimers(): void {
@@ -1298,6 +1349,16 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           draftNote: "",
           draftAttachments: [],
         });
+        const expected = payload.intents
+          .filter(
+            (i): i is Extract<Intent, { kind: "tweak" }> => i.kind === "tweak",
+          )
+          .map((i) => ({
+            prop: i.prop,
+            to: i.to,
+            source: i.selection.source,
+          }));
+        scheduleMismatchCheck(expected);
       };
 
       try {
@@ -1516,6 +1577,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       const sessionId =
         sessions.find((s) => s.id === activeSessionId)?.agentSessionId ?? null;
       await primaryAgent.abort(sessionId);
+      clearMismatchCheck();
       set({ agentBusy: false });
     },
 
@@ -1863,6 +1925,18 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       previewPort.selectNode(id);
     },
 
+    selectAncestor() {
+      previewPort.selectAncestor();
+    },
+
+    dismissPreviewMismatch() {
+      if (mismatchToastTimer !== null) {
+        clearTimeout(mismatchToastTimer);
+        mismatchToastTimer = null;
+      }
+      set({ previewMismatch: null });
+    },
+
     navigatePreview(path) {
       const normalized = path.startsWith("/") ? path : `/${path}`;
       set({
@@ -1967,19 +2041,34 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         scheduleTreeRequests();
         break;
       }
-      case "steer:select":
+      case "steer:select": {
         store.setState({
           selection: msg.selection,
           selectedId: msg.id,
           scope: "instance",
         });
+        const pending = pendingMismatch;
+        if (pending == null) break;
+        const key = locKey(msg.selection);
+        const relevant = pending.filter(
+          (t) => locKey({ source: t.source }) === key,
+        );
+        if (relevant.length === 0) break;
+        pendingMismatch = null;
+        const miss = relevant.some(
+          (t) =>
+            !computedMatchesTweak(t.prop, msg.selection.computed[t.prop], t.to),
+        );
+        if (miss) showMismatchToast();
         break;
+      }
       case "steer:hover":
         store.setState({ hoverSelection: msg.selection });
         break;
       case "steer:navigate":
         // UX §5.9: la cola de intents (Fase E) se conservará; los drafts
         // de override son del documento anterior y se limpian.
+        clearMismatchCheck();
         store.setState({
           previewPath: msg.href,
           selection: null,

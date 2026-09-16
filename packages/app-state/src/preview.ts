@@ -11,6 +11,8 @@ export type PreviewSlice = {
   previewError: string | null;
   /** Sube en cada reload para remontar el iframe. */
   reloadNonce: number;
+  /** UX §5.6: toast si el computed no refleja el tweak a los 2s. */
+  previewMismatch: string | null;
 };
 
 export const initialPreviewSlice: PreviewSlice = {
@@ -19,4 +21,5 @@ export const initialPreviewSlice: PreviewSlice = {
   previewPath: "/",
   previewError: null,
   reloadNonce: 0,
+  previewMismatch: null,
 };

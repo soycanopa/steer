@@ -108,6 +108,8 @@ export function createIframePreviewPort(
     removePin: (intentId) => post({ type: "steer:remove-pin", intentId }),
     clearPins: () => post({ type: "steer:clear-pins" }),
     selectNode: (id) => post({ type: "steer:select-node", id }),
+    selectBySource: (source) => post({ type: "steer:select-source", source }),
+    selectAncestor: () => post({ type: "steer:select-ancestor" }),
     focusPin: (intentId) => post({ type: "steer:focus-pin", intentId }),
     capture: () => post({ type: "steer:capture" }),
     captureThumbnail: async () => {
