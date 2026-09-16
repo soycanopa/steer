@@ -14,7 +14,7 @@ Steer nunca es source of truth del diseño. OpenCode es el primer adapter, no el
 
 1. **La UI no escribe source del proyecto del usuario.** Overlay efímero. Persiste el agente-producto vía `AgentPort`.
 2. **No construyas un editor de código** (Monaco, file tree editable, etc.).
-3. **No construyas un canvas tipo Figma.** Un iframe.
+3. **No construyas un canvas tipo Figma.** P0 = un iframe. P2 **Vistas** = N iframes del mismo `dev` (default 1440 / 768 / 390), una selección, overlay efímero. No frames vacíos, no zoom de mesa, no capas que no sean el DOM. Spec: `docs/VISTAS.md`. No lo implementes hasta que P0 cierre.
 4. **React no habla con providers.** Ni `fetch` a `:4096`, ni stdio. Solo `app-state` → `AgentPort`.
 5. **Rust no conoce Intent.** Host: fs, spawn, proxy, dialog.
 6. **No inventes `data-tsd-source`.** Banner + bloquear Apply.

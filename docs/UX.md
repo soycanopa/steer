@@ -16,7 +16,7 @@ Frase de cabecera (producto): “Tú diriges. El agente escribe.”
 3. **Alcance visible siempre.** Instancia vs componente, nunca implícito.
 4. **Aplicar es un acto.** Los tweaks no se van solos al agente. El usuario revisa el lote y dispara.
 5. **El agente no desaparece el contexto.** Cada Intent queda como bloque en el transcript, no se aplana a prosa.
-6. **Un solo objeto de atención.** Una selección. Un preview. Un chat. Nada de canvas infinito en el prototipo.
+6. **Un solo objeto de atención.** Una selección. Un chat. En P0, un preview. En P2 **Vistas**, tres previews de la misma ruta (1440 / 768 / 390) y sigue habiendo una sola selección — el stage activo. No es un canvas de diseño.
 7. **Errores accionables.** “No hay `data-tsd-source`” + cómo activarlo. Nunca “algo falló”.
 8. **Teclado de builder.** Inspect, aplicar, abortar, focus chat. Sin atajos de editor de código.
 
@@ -52,6 +52,8 @@ el chat permanece. Anchos fijos para inspector (~300px) y chat
 | Comment | Click = seleccionar + focus textarea pin | `C` con selección, o botón pin |
 
 No hay modo “draw”. No hay modo “pan canvas”.
+
+P2 **Vistas** (no prototipo): el pointer sigue siendo Interact / Inspect / Comment, pero sobre el stage activo de un tablero con 3 iframes de la misma ruta. Spec: [VISTAS.md](./VISTAS.md). El toggle es Vista única | Vistas, no un modo de dibujo.
 
 Al estar Inspect ON, los clicks no deben disparar la app. El bridge hace `preventDefault` + `stopPropagation` en click/mousedown.
 

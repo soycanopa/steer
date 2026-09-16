@@ -12,6 +12,7 @@ Este directorio es el paquete de definición del **prototipo**. Siéntate a cons
 | [UX.md](./UX.md) | Principios, flujos, teclado, estados vacíos |
 | [UI.md](./UI.md) | Layout, componentes, tokens visuales, estados de UI |
 | [IMPLEMENTATION.md](./IMPLEMENTATION.md) | Fases, árbol de repo, tareas, criterio de hecho |
+| [VISTAS.md](./VISTAS.md) | P2: multi-preview 1440 / 768 / 390. No es canvas de diseño |
 | [AGENTS.md](../AGENTS.md) | Reglas para cualquier agente que toque el código |
 
 ## Idea en una frase
