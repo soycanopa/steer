@@ -31,6 +31,8 @@ export type ParentToFrame =
   | { type: "steer:select-node"; id: string }
   | { type: "steer:focus-pin"; intentId: string }
   | { type: "steer:capture" }
+  /** Captura silenciosa (sin overlay) para el thumbnail del home. */
+  | { type: "steer:capture-thumbnail" }
   | { type: "steer:request-tree" };
 
 export type FrameToParent =
@@ -41,6 +43,8 @@ export type FrameToParent =
   | { type: "steer:tree"; nodes: LayerNode[] }
   | { type: "steer:captured"; mime: string; dataUrl: string }
   | { type: "steer:capture-error"; message: string }
+  /** Thumbnail del preview activo (home). */
+  | { type: "steer:thumbnail"; dataUrl: string }
   /** Popover del preview (modo comentario): crear o editar pin. */
   | {
       type: "steer:comment-submit";
@@ -62,6 +66,11 @@ export type PreviewPort = {
   selectNode(id: string): void;
   focusPin(intentId: string): void;
   capture(): void;
+  /**
+   * Snapshot silencioso del preview activo para el thumbnail del home.
+   * Nativo (WKWebView) con fallback al bridge. `null` si no se pudo.
+   */
+  captureThumbnail(): Promise<string | null>;
   /** Pide al bridge un push inmediato de steer:tree. */
   requestTree(): void;
   /** Reenvía mensajes encolados cuando el iframe se monta. */

@@ -149,6 +149,8 @@ export type ProjectPort = {
   open(path: string): Promise<ProjectMeta>;
   createStart(parentDir: string, name: string): Promise<ProjectMeta>;
   startDev(path: string): Promise<{ url: string; spawned: boolean }>;
+  /** URL viva del dev server (sin spawnear) para previews del home. */
+  previewUrl(path: string): Promise<string | null>;
   stopDev(path: string): Promise<void>;
 };
 
@@ -160,6 +162,8 @@ export type PreviewPort = {
   addPin(intentId: string, steerId: string, number: number): void;
   removePin(intentId: string): void;
   clearPins(): void;
+  /** Snapshot del preview (nativo WKWebView, fallback bridge) para el home. */
+  captureThumbnail(): Promise<string | null>;
   subscribe(handler: (msg: FrameToParent) => void): () => void;
 };
 ```

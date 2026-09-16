@@ -191,7 +191,10 @@ type ParentToFrame =
   | { type: "steer:remove-pin"; intentId: string }
   | { type: "steer:clear-pins" }
   // Capas (Fase layers): seleccionar un nodo desde el árbol.
-  | { type: "steer:select-node"; id: string };
+  | { type: "steer:select-node"; id: string }
+  // Cámara: selección de área (click = viewport completo) y captura silenciosa.
+  | { type: "steer:capture" }
+  | { type: "steer:capture-thumbnail" };
 ```
 
 iframe → parent
@@ -205,7 +208,12 @@ type FrameToParent =
   | { type: "steer:select"; id: string; selection: Selection }
   | { type: "steer:navigate"; href: string }
   // Árbol de capas: push en ready/navigate y con debounce al mutar DOM.
-  | { type: "steer:tree"; nodes: LayerNode[] };
+  | { type: "steer:tree"; nodes: LayerNode[] }
+  // Capturas (Cámara).
+  | { type: "steer:captured"; mime: string; dataUrl: string }
+  | { type: "steer:capture-error"; message: string }
+  /** Thumbnail del preview activo para el home. */
+  | { type: "steer:thumbnail"; dataUrl: string };
 ```
 
 `Selection` se construye así:
@@ -294,6 +302,8 @@ project_open            { path } -> ProjectMeta
 project_create_start    { parentDir, name } -> ProjectMeta
 project_dev_start       { path } -> { url, spawned: boolean }
 project_dev_stop        { path }
+project_preview_url     { path } -> string | null   // home: URL viva sin spawnear
+window_snapshot         { x, y, width, height } -> { dataUrl }  // thumbnail nativo
 project_read_package    { path } -> PackageJson
 opencode_ensure         { directory } -> { baseUrl, version }
 proxy_start             { upstreamUrl } -> { proxyUrl }
