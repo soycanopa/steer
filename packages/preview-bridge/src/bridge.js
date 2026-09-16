@@ -624,10 +624,9 @@
     return Promise.all(pending);
   }
 
-  async function capturePreview(region) {
-    try {
-      await preloadCaptureImages();
-      var fullW = Math.max(1, Math.round(window.innerWidth || 800));
+  async function paintPreview(region) {
+    await preloadCaptureImages();
+    var fullW = Math.max(1, Math.round(window.innerWidth || 800));
       var fullH = Math.max(1, Math.round(window.innerHeight || 600));
       var vx = 0;
       var vy = 0;
@@ -776,6 +775,12 @@
         ctx.restore();
       }
 
+    return canvas;
+  }
+
+  async function capturePreview(region) {
+    try {
+      var canvas = await paintPreview(region);
       var dataUrl;
       try {
         dataUrl = canvas.toDataURL("image/png");
@@ -793,6 +798,32 @@
         type: "steer:capture-error",
         message: err && err.message ? err.message : String(err),
       });
+    }
+  }
+
+  // Thumbnail silencioso para el home: full viewport, downscale, JPEG.
+  async function captureThumbnail() {
+    try {
+      var canvas = await paintPreview(null);
+      var maxW = 640;
+      var ratio = canvas.width > maxW ? maxW / canvas.width : 1;
+      var tw = Math.max(1, Math.round(canvas.width * ratio));
+      var th = Math.max(1, Math.round(canvas.height * ratio));
+      var thumb = document.createElement("canvas");
+      thumb.width = tw;
+      thumb.height = th;
+      var tctx = thumb.getContext("2d");
+      if (!tctx) return;
+      tctx.drawImage(canvas, 0, 0, tw, th);
+      var dataUrl;
+      try {
+        dataUrl = thumb.toDataURL("image/jpeg", 0.7);
+      } catch (_taint) {
+        return;
+      }
+      send({ type: "steer:thumbnail", dataUrl: dataUrl });
+    } catch (_) {
+      /* thumbnail best-effort */
     }
   }
 
@@ -1391,6 +1422,9 @@
         break;
       case "steer:capture":
         beginCaptureSelection();
+        break;
+      case "steer:capture-thumbnail":
+        captureThumbnail();
         break;
       case "steer:request-tree":
         pushTree();
