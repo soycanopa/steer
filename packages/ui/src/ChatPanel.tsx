@@ -94,6 +94,7 @@ export type PendingCommentView = {
 
 export type PendingEditView = {
   id: string;
+  pin: number;
   prop: TweakProp;
   from: string;
   to: string;
@@ -497,7 +498,9 @@ function PendingEdits({
                   title={`${e.label} (${e.from} → ${e.to})`}
                   className="min-w-0 flex-1 text-left"
                 >
-                  <span className="font-mono text-[var(--accent)]">{e.label}</span>
+                  <span className="font-mono text-[var(--accent)]">
+                    #{e.pin} {e.label}
+                  </span>
                 </button>
                 <button
                   type="button"
@@ -533,7 +536,9 @@ function PendingEdits({
               strokeWidth={1.75}
               className="mr-0.5 inline text-[var(--accent)]"
             />
-            <span className="font-mono text-[var(--accent)]">{e.label}</span>
+            <span className="font-mono text-[var(--accent)]">
+              #{e.pin} {e.label}
+            </span>
           </button>
           <button
             type="button"

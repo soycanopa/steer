@@ -117,23 +117,23 @@ export default function App() {
     [queue],
   );
 
-  const pendingEdits = useMemo(
-    () =>
-      queue.flatMap((i) =>
-        i.kind === "tweak"
-          ? [
-              {
-                id: i.id,
-                prop: i.prop,
-                from: i.from,
-                to: i.to,
-                label: tweakEditLabel(i.prop, i.to),
-              },
-            ]
-          : [],
-      ),
-    [queue],
-  );
+  const pendingEdits = useMemo(() => {
+    let n = 0;
+    return queue.flatMap((i) => {
+      if (i.kind !== "tweak") return [];
+      n += 1;
+      return [
+        {
+          id: i.id,
+          pin: n,
+          prop: i.prop,
+          from: i.from,
+          to: i.to,
+          label: tweakEditLabel(i.prop, i.to),
+        },
+      ];
+    });
+  }, [queue]);
 
   const activeAgentSessionId =
     sessions.find((s) => s.id === activeSessionId)?.agentSessionId ?? null;

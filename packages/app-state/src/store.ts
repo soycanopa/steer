@@ -380,6 +380,35 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       }, 800);
     }, 2000);
   }
+
+  let editPinIds = new Set<string>();
+
+  /** Círculos azules numerados en el preview, uno por tweak encolado. */
+  function syncEditPins(): void {
+    const { queue, tweaks, tree } = store.getState();
+    const next = new Set<string>();
+    let n = 0;
+    for (const i of queue) {
+      if (i.kind !== "tweak") continue;
+      n += 1;
+      next.add(i.id);
+      const draft = tweaks.find(
+        (t) =>
+          t.prop === i.prop &&
+          t.scope === i.scope &&
+          locKey(t.selection) === locKey(i.selection),
+      );
+      const node = findTreeNodeBySource(tree, locKey(i.selection));
+      const steerId = node?.id ?? draft?.steerId;
+      if (steerId == null || steerId === "") continue;
+      previewPort.addPin(i.id, steerId, n, undefined, "edit");
+    }
+    for (const id of editPinIds) {
+      if (!next.has(id)) previewPort.removePin(id);
+    }
+    editPinIds = next;
+  }
+
   let thumbnailTimer: ReturnType<typeof setTimeout> | null = null;
 
   function clearTreeRequestTimers(): void {
@@ -991,6 +1020,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         }),
       });
       previewPort.setOverrides(buildOverrides(nextTweaks));
+      syncEditPins();
     },
 
     resetTweak(prop) {
@@ -1013,6 +1043,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             );
       set({ tweaks: nextTweaks, queue: nextQueue });
       previewPort.setOverrides(buildOverrides(nextTweaks));
+      syncEditPins();
     },
 
     resetAllTweaks() {
@@ -1023,6 +1054,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         queue: s.queue.filter((i) => i.kind !== "tweak"),
       }));
       previewPort.clearOverrides();
+      syncEditPins();
     },
 
     undoLastTweak() {
@@ -1050,6 +1082,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         queue: nextQueue,
       });
       previewPort.setOverrides(buildOverrides(nextTweaks));
+      syncEditPins();
     },
 
     queueComment(body) {
@@ -1106,14 +1139,17 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           t.scope === intent.scope &&
           locKey(t.selection) === locKey(intent.selection),
       );
-      if (draft === undefined) return;
-      set({
-        selection: draft.selection,
-        selectedId: draft.steerId,
-        scope: draft.scope,
-      });
       get().setMode("inspect");
-      previewPort.selectNode(draft.steerId);
+      set({
+        selection: intent.selection,
+        selectedId: draft?.steerId ?? get().selectedId,
+        scope: intent.scope,
+      });
+      if (intent.selection.source.file !== "") {
+        previewPort.selectBySource(intent.selection.source);
+      } else if (draft?.steerId) {
+        previewPort.selectNode(draft.steerId);
+      }
     },
 
     removeQueued(intentId) {
@@ -1147,6 +1183,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           tweakLog: nextLog,
         });
         previewPort.setOverrides(buildOverrides(nextTweaks));
+        syncEditPins();
         return;
       }
 
@@ -1349,6 +1386,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           draftNote: "",
           draftAttachments: [],
         });
+        syncEditPins();
         const expected = payload.intents
           .filter(
             (i): i is Extract<Intent, { kind: "tweak" }> => i.kind === "tweak",
@@ -2062,6 +2100,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         if (miss) showMismatchToast();
         break;
       }
+      case "steer:open-inspector":
+        store.getState().setMode("inspect");
+        break;
       case "steer:hover":
         store.setState({ hoverSelection: msg.selection });
         break;
@@ -2084,9 +2125,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           if (i.kind !== "comment") continue;
           const node = findTreeNodeBySource(msg.nodes, locKey(i.selection));
           if (node !== null) {
-            previewPort.addPin(i.id, node.id, i.pin, i.body);
+            previewPort.addPin(i.id, node.id, i.pin, i.body, "comment");
           }
         }
+        syncEditPins();
         break;
       }
       case "steer:captured": {
