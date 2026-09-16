@@ -60,6 +60,7 @@ export function mapProvidersToModels(
           : `${provider.id}/${modelId}`;
       out.push({
         providerId: provider.id,
+        adapterId: OPENCODE_PROVIDER_ID,
         modelId,
         label,
         capabilities: {
