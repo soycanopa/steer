@@ -187,33 +187,52 @@ async fn forward_http(state: Arc<ProxyState>, request: Request) -> Result<Respon
         .build()
         .map_err(|e| format!("No pude crear cliente HTTP: {e}"))?;
 
-    let mut upstream_req = client.request(method, &url);
-
-    // Identity: sin compresión del upstream, así la inyección de HTML
-    // opera sobre texto plano.
-    upstream_req = upstream_req.header("accept-encoding", "identity");
-
-    for (name, value) in &parts.headers {
-        if is_hop_by_hop(name) || name == axum::http::header::HOST {
-            continue;
-        }
-        if let Ok(v) = value.to_str() {
-            upstream_req = upstream_req.header(name.as_str(), v);
-        }
-    }
-
     let body_bytes = axum::body::to_bytes(body, 64 * 1024 * 1024)
         .await
         .map_err(|e| format!("Cuerpo de request ilegible: {e}"))?;
-    if !body_bytes.is_empty() {
-        upstream_req = upstream_req.body(body_bytes.to_vec());
-    }
 
-    let upstream_res = upstream_req
-        .timeout(Duration::from_secs(30))
-        .send()
-        .await
-        .map_err(|e| format!("Upstream inalcanzable: {e}"))?;
+    // Vite se cae un momento al escribir el agente; reintentar connection refused.
+    let mut last_err = None;
+    let mut upstream_res = None;
+    for attempt in 0..8u32 {
+        let mut req = client.request(method.clone(), &url);
+        req = req.header("accept-encoding", "identity");
+        for (name, value) in &parts.headers {
+            if is_hop_by_hop(name) || name == axum::http::header::HOST {
+                continue;
+            }
+            if let Ok(v) = value.to_str() {
+                req = req.header(name.as_str(), v);
+            }
+        }
+        if !body_bytes.is_empty() {
+            req = req.body(body_bytes.to_vec());
+        }
+        match req.timeout(Duration::from_secs(30)).send().await {
+            Ok(res) => {
+                upstream_res = Some(res);
+                break;
+            }
+            Err(e) => {
+                last_err = Some(e);
+                if attempt == 7 {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(400)).await;
+            }
+        }
+    }
+    let upstream_res = match upstream_res {
+        Some(res) => res,
+        None => {
+            return Err(format!(
+                "Upstream inalcanzable: {}",
+                last_err
+                    .map(|e| e.to_string())
+                    .unwrap_or_else(|| "sin respuesta".into())
+            ));
+        }
+    };
 
     let status = StatusCode::from_u16(upstream_res.status().as_u16())
         .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
