@@ -27,6 +27,7 @@ import {
   type ReasoningEffortUi,
 } from "./ModelSelector";
 import { QuestionCard } from "./QuestionCard";
+import { LoadingState } from "./LoadingState";
 
 export type PermissionPolicyUi = "default" | "always";
 
@@ -193,11 +194,27 @@ export function ChatPanel({
 
   const showThinking = useMemo(() => {
     if (!agentBusy) return false;
+    // Mientras el agente trabaja (razonamiento, herramientas o texto) siempre
+    // se muestra el loader con su animación.
     const last = transcript[transcript.length - 1];
-    if (last?.kind !== "agent" || last.status !== "streaming") return false;
-    const runningTools = last.tools.filter((t) => t.status === "start").length;
-    return last.text === "" && last.reasoning === "" && runningTools === 0;
+    return last == null || last.kind !== "agent" || last.status === "streaming";
   }, [agentBusy, transcript]);
+
+  // La pregunta pendiente se muestra arriba del composer (no inline). Al
+  // responder, desaparece y queda como bloque en el transcript.
+  const pendingQuestion = useMemo(() => {
+    for (let i = transcript.length - 1; i >= 0; i -= 1) {
+      const block = transcript[i];
+      if (
+        block != null &&
+        block.kind === "question" &&
+        block.status === "pending"
+      ) {
+        return block;
+      }
+    }
+    return null;
+  }, [transcript]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -310,18 +327,21 @@ export function ChatPanel({
                 );
               }
               if (block.kind === "question") {
+                // La pendiente vive arriba del composer; acá solo queda la
+                // respuesta ya dada, como mensaje del usuario.
+                if (block.status === "pending") return null;
                 return (
-                  <QuestionCard
+                  <div
                     key={block.id}
-                    prompt={block.prompt}
-                    questions={block.questions}
-                    options={block.options}
-                    status={block.status}
-                    answer={block.answer}
-                    error={block.error}
-                    disabled={block.status === "answered"}
-                    onSubmit={(answers) => onAnswerQuestion(block.id, answers)}
-                  />
+                    className="w-fit max-w-full rounded-[var(--radius-m)] bg-[var(--bg-2)] px-3 py-2"
+                  >
+                    <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">
+                      {block.prompt}
+                    </p>
+                    <p className="mt-1 text-[length:var(--fs-2)] text-[var(--text-0)]">
+                      {block.answer}
+                    </p>
+                  </div>
                 );
               }
               return <IntentBatchCard key={block.id} payload={block.payload} />;
@@ -343,6 +363,22 @@ export function ChatPanel({
           onFocus={onFocusComment}
           onRemove={onRemoveComment}
         />
+
+        {pendingQuestion != null ? (
+          <div className="mb-2">
+            <QuestionCard
+              prompt={pendingQuestion.prompt}
+              questions={pendingQuestion.questions}
+              options={pendingQuestion.options}
+              status={pendingQuestion.status}
+              answer={pendingQuestion.answer}
+              error={pendingQuestion.error}
+              onSubmit={(answers) =>
+                onAnswerQuestion(pendingQuestion.id, answers)
+              }
+            />
+          </div>
+        ) : null}
 
         <Composer
           value={draftNote}
@@ -1003,9 +1039,7 @@ function AgentThinkingIndicator() {
   }, []);
 
   return (
-    <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">
-      <span className="steer-shimmer">{THINKING_PHRASES[index]}</span>
-    </p>
+    <LoadingState label={THINKING_PHRASES[index] ?? THINKING_PHRASES[0]} />
   );
 }
 
@@ -1350,16 +1384,16 @@ function Composer({
           }}
           disabled={!agentBusy && !canSend}
           title={sendHint ?? "Enviar al agente (⌘Enter)"}
-          className={`pointer-events-auto ml-auto flex size-6 shrink-0 items-center justify-center rounded-full text-white transition-colors duration-120 disabled:opacity-40 ${
+          className={`pointer-events-auto ml-auto flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-120 disabled:opacity-40 ${
             agentBusy
-              ? "bg-[var(--danger)] hover:bg-[#e85d5d]"
-              : "bg-[var(--accent)] hover:bg-[#6c99ff]"
+              ? "bg-[var(--danger)] text-white hover:bg-[#e85d5d]"
+              : "bg-white text-[var(--bg-0)] hover:bg-[#e6e6e6]"
           }`}
         >
           {agentBusy ? (
             <Square size={11} strokeWidth={2} className="fill-current" />
           ) : (
-            <SendHorizontal size={13} strokeWidth={1.75} />
+            <SendHorizontal size={13} fill="currentColor" strokeWidth={0} />
           )}
         </button>
       </div>
