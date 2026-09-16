@@ -3,14 +3,25 @@
 
 import type { ApplyPayload } from "@steer/domain";
 
-export type ProviderId = string; // "opencode" | "claude-code" | "grok-build" | "acp:<name>"
+export type ProviderId = string; // "opencode" | "cursor" | "grok-build" | "claude-code" | "acp:<name>"
 export type SessionId = string;
 
 /** Modo de agente que el adapter mapea a su nomenclatura (build/ask/plan). */
 export type AgentMode = "ask" | "plan" | "agent";
 
+export type ModelParamDef = {
+  id: string;
+  label: string;
+  values: Array<{ value: string; label: string }>;
+};
+
 export type ModelRef = {
   providerId: ProviderId;
+  /**
+   * AgentPort.id que listó este modelo. OpenCode rellena providerId con el
+   * vendor conectado (anthropic, …); adapterId sigue siendo "opencode".
+   */
+  adapterId?: ProviderId;
   modelId: string;
   label: string;
   capabilities: {
@@ -20,6 +31,11 @@ export type ModelRef = {
     reasoningVariants?: ("low" | "high" | "max")[];
     images: boolean;
     tools: boolean;
+    /**
+     * Knobs del catálogo del provider (Cursor: `fast`, `optimize_for`…).
+     * La UI no inventa ids; solo pinta lo que listModels() trajo.
+     */
+    params?: ModelParamDef[];
   };
 };
 
