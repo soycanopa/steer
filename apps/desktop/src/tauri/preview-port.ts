@@ -103,8 +103,8 @@ export function createIframePreviewPort(
     setOverrides: (overrides) => post({ type: "steer:set-overrides", overrides }),
     clearOverrides: () => post({ type: "steer:clear-overrides" }),
     highlight: (source) => post({ type: "steer:highlight", source }),
-    addPin: (intentId, steerId, number, body) =>
-      post({ type: "steer:add-pin", intentId, steerId, number, body }),
+    addPin: (intentId, steerId, number, body, kind) =>
+      post({ type: "steer:add-pin", intentId, steerId, number, body, kind }),
     removePin: (intentId) => post({ type: "steer:remove-pin", intentId }),
     clearPins: () => post({ type: "steer:clear-pins" }),
     selectNode: (id) => post({ type: "steer:select-node", id }),

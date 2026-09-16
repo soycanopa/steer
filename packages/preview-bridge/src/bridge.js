@@ -1124,9 +1124,10 @@
   // ---- Pins + popover de comentario (modo Comment) —
   // Círculo numerado en el nodo; click = editar. El popover vive en el
   // preview (mismo origin que el DOM del proyecto).
-  var pins = {}; // intentId → { steerId, badge, body, number }
+  var pins = {}; // intentId → { steerId, badge, body, number, kind }
   var PIN_SIZE = 18;
   var PIN_COLOR = "#ff8a4c";
+  var EDIT_PIN_COLOR = "#5b8cff";
   var commentPopover = null;
   var commentTextarea = null;
   var commentSave = null;
@@ -1146,6 +1147,7 @@
   }
 
   function positionPins() {
+    var slotByNode = {};
     for (var id in pins) {
       if (!Object.prototype.hasOwnProperty.call(pins, id)) continue;
       var pin = pins[id];
@@ -1156,26 +1158,33 @@
       }
       var r = el.getBoundingClientRect();
       var o = overlayOrigin(pin.badge);
+      var slot = slotByNode[pin.steerId] || 0;
+      slotByNode[pin.steerId] = slot + 1;
       pin.badge.style.display = "flex";
       pin.badge.style.left =
-        r.left - o.x + r.width - PIN_SIZE / 2 + "px";
+        r.left - o.x + r.width - PIN_SIZE / 2 - slot * 14 + "px";
       pin.badge.style.top = r.top - o.y - PIN_SIZE / 2 + "px";
     }
   }
 
-  function addPin(intentId, steerId, number, body) {
+  function addPin(intentId, steerId, number, body, kind) {
     removePin(intentId);
+    var pinKind = kind === "edit" ? "edit" : "comment";
+    var color = pinKind === "edit" ? EDIT_PIN_COLOR : PIN_COLOR;
     var target = pinTarget(steerId);
     var badge = document.createElement("button");
     badge.type = "button";
     badge.setAttribute("data-steer-pin", intentId);
-    badge.setAttribute("aria-label", "Comentario #" + number);
+    badge.setAttribute(
+      "aria-label",
+      pinKind === "edit" ? "Edición #" + number : "Comentario #" + number,
+    );
     badge.textContent = String(number);
     badge.style.cssText =
       "position:absolute;z-index:2147483645;width:" + PIN_SIZE + "px;height:" +
       PIN_SIZE + "px;align-items:center;justify-content:center;" +
       "border:0;padding:0;cursor:pointer;" +
-      "border-radius:9999px;background:" + PIN_COLOR + ";color:#fff;" +
+      "border-radius:9999px;background:" + color + ";color:#fff;" +
       "font:10px/1 ui-monospace,SFMono-Regular,Menlo,monospace;" +
       "display:flex;box-shadow:0 1px 4px #0e0f1166;pointer-events:auto;";
     badge.addEventListener("click", function (e) {
@@ -1183,6 +1192,10 @@
       e.stopPropagation();
       var clickTarget = pinTarget(steerId);
       if (clickTarget) selectElement(clickTarget);
+      if (pinKind === "edit") {
+        send({ type: "steer:open-inspector" });
+        return;
+      }
       showCommentPopover(
         clickTarget || document.body,
         typeof body === "string" ? body : "",
@@ -1196,6 +1209,7 @@
       badge: badge,
       body: typeof body === "string" ? body : "",
       number: number,
+      kind: pinKind,
     };
     positionPins();
   }
@@ -1347,6 +1361,10 @@
     if (!pin) return;
     var el = pinTarget(pin.steerId);
     if (el) selectElement(el);
+    if (pin.kind === "edit") {
+      send({ type: "steer:open-inspector" });
+      return;
+    }
     showCommentPopover(el || document.body, pin.body || "", intentId, pin.steerId);
   }
 
@@ -1446,7 +1464,7 @@
         highlight(msg.source);
         break;
       case "steer:add-pin":
-        addPin(msg.intentId, msg.steerId, msg.number, msg.body);
+        addPin(msg.intentId, msg.steerId, msg.number, msg.body, msg.kind);
         break;
       case "steer:remove-pin":
         removePin(msg.intentId);

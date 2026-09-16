@@ -187,7 +187,7 @@ type ParentToFrame =
   | { type: "steer:clear-overrides" }
   | { type: "steer:highlight"; source: SourceLoc | null }
   // Pins (Fase E): badge numerado anclado al nodo data-steer-id.
-  | { type: "steer:add-pin"; intentId: string; steerId: string; number: number }
+  | { type: "steer:add-pin"; intentId: string; steerId: string; number: number; body?: string; kind?: "comment" | "edit" }
   | { type: "steer:remove-pin"; intentId: string }
   | { type: "steer:clear-pins" }
   // Capas (Fase layers): seleccionar un nodo desde el árbol.
@@ -215,7 +215,8 @@ type FrameToParent =
   | { type: "steer:captured"; mime: string; dataUrl: string }
   | { type: "steer:capture-error"; message: string }
   /** Thumbnail del preview activo para el home. */
-  | { type: "steer:thumbnail"; dataUrl: string };
+  | { type: "steer:thumbnail"; dataUrl: string }
+  | { type: "steer:open-inspector" };
 ```
 
 `Selection` se construye así:

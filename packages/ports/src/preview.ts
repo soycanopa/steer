@@ -25,6 +25,7 @@ export type ParentToFrame =
       steerId: string;
       number: number;
       body?: string;
+      kind?: "comment" | "edit";
     }
   | { type: "steer:remove-pin"; intentId: string }
   | { type: "steer:clear-pins" }
@@ -56,7 +57,9 @@ export type FrameToParent =
       body: string;
       steerId: string;
       selection: Selection | null;
-    };
+    }
+  /** Clic en pin de edición: el parent entra a Inspect y muestra el inspector. */
+  | { type: "steer:open-inspector" };
 
 export type PreviewPort = {
   setInspect(on: boolean): void;
@@ -64,7 +67,13 @@ export type PreviewPort = {
   setOverrides(overrides: OverlayOverride[]): void;
   clearOverrides(): void;
   highlight(source: SourceLoc | null): void;
-  addPin(intentId: string, steerId: string, number: number, body?: string): void;
+  addPin(
+    intentId: string,
+    steerId: string,
+    number: number,
+    body?: string,
+    kind?: "comment" | "edit",
+  ): void;
   removePin(intentId: string): void;
   clearPins(): void;
   selectNode(id: string): void;
