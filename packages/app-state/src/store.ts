@@ -27,6 +27,11 @@ import type {
   ProjectPort,
   SessionId,
 } from "@steer/ports";
+import { resolveAgentPort } from "./resolve-agent";
+import {
+  forkChatIfAdapterChanged,
+  reuseAgentSessionId,
+} from "./session-scope";
 import type { ProjectSlice } from "./project";
 import {
   cacheWorkspace,
@@ -49,6 +54,7 @@ import {
 import {
   initialAgentSlice,
   pickDefaultModel,
+  pickParamValues,
   type AgentSlice,
   type PermissionPolicy,
   type ReasoningEffort,
@@ -60,6 +66,7 @@ export type AgentPrefs = {
   providerId: string | null;
   modelId: string | null;
   reasoningEffort: ReasoningEffort | null;
+  paramValues: Record<string, string> | null;
 };
 
 export type PrefsApi = {
@@ -168,6 +175,7 @@ export type SteerState = ProjectSlice &
     /** Fase F: elegir modelo de listModels(). */
     setModel(model: ModelRef): void;
     setReasoningEffort(effort: ReasoningEffort): void;
+    setModelParam(id: string, value: string): void;
     /** ask | plan | agent (OpenCode: build). */
     setAgentMode(mode: AgentMode): void;
     setPermissionPolicy(policy: PermissionPolicy): void;
@@ -342,6 +350,10 @@ function applyWorkspaceSnapshot(
   ) => void,
   snap: WorkspaceSnapshot,
 ): void {
+  const sessions = (snap.intents.sessions ?? []).map((sess) => ({
+    ...sess,
+    agentAdapterId: sess.agentAdapterId ?? null,
+  }));
   set({
     projectStatus: "open",
     projectMeta: snap.meta,
@@ -354,6 +366,7 @@ function applyWorkspaceSnapshot(
     previewError: null,
     ...snap.selection,
     ...snap.intents,
+    sessions,
     tree: null,
     agentSessions: snap.agentSessions,
   });
@@ -374,7 +387,6 @@ function workspaceHasUserWork(snap: WorkspaceSnapshot): boolean {
 }
 
 export function createAppStore({ projectPort, previewPort, prefs, agents }: AppDeps) {
-  const primaryAgent = agents[0] ?? null;
   let bootstrapRun: Promise<void> | null = null;
   let syncRun: Promise<void> | null = null;
   // Generación de cambio de proyecto: una apertura nueva aborta la anterior
@@ -601,6 +613,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           agentPrefs.reasoningEffort === "max"
         ) {
           set({ reasoningEffort: agentPrefs.reasoningEffort });
+        }
+        if (agentPrefs.paramValues != null) {
+          set({ modelParamValues: agentPrefs.paramValues });
         }
 
         const [recents, thumbs] = await Promise.all([
@@ -1356,9 +1371,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       }
 
       // Sin agente o sin modelo: el lote queda en el transcript; la cola se conserva.
-      if (primaryAgent === null || selectedModel === null) {
+      const agent = resolveAgentPort(agents, selectedModel);
+      if (agent === null || selectedModel === null) {
         const reason =
-          primaryAgent === null
+          agent === null
             ? "Sin AgentPort registrado en composition."
             : "Elige un modelo antes de aplicar.";
         blocks.push({
@@ -1410,8 +1426,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         queue: [],
       });
 
-      const sessionId = get().sessions.find((s) => s.id === get().activeSessionId)
-        ?.agentSessionId as SessionId | null;
+      const sessionId = reuseAgentSessionId(
+        get().sessions.find((s) => s.id === get().activeSessionId),
+        agent.id,
+      ) as SessionId | null;
 
       const tools: TranscriptTool[] = [];
       let text = "";
@@ -1530,7 +1548,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             dataBase64: a.dataBase64,
           })),
         ];
-        const events = primaryAgent.startTurn({
+        const events = agent.startTurn({
           directory: payload.projectRoot,
           sessionId,
           model: selectedModel,
@@ -1538,6 +1556,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             agent: get().agentMode,
             ...(get().selectedModel?.capabilities.reasoning === true
               ? { reasoning: { effort: get().reasoningEffort } }
+              : {}),
+            ...(Object.keys(get().modelParamValues).length > 0
+              ? {
+                  params: Object.entries(get().modelParamValues).map(
+                    ([id, value]) => ({ id, value }),
+                  ),
+                }
               : {}),
           },
           parts: [...turnParts],
@@ -1551,7 +1576,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                 sessions: s.sessions.map((sess) =>
                   sess.id !== s.activeSessionId
                     ? sess
-                    : { ...sess, agentSessionId: ev.sessionId },
+                    : {
+                        ...sess,
+                        agentSessionId: ev.sessionId,
+                        agentAdapterId: agent.id,
+                      },
                 ),
               }));
               if (payload.projectRoot !== "") {
@@ -1634,7 +1663,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               patchAgentBlock(agentBlockId, { tools: [...tools] });
               if (
                 liveSessionId == null ||
-                primaryAgent.respondPermission == null
+                agent.respondPermission == null
               ) {
                 patchAgentBlock(agentBlockId, {
                   status: "error",
@@ -1645,7 +1674,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                 return;
               }
               try {
-                await primaryAgent.respondPermission(
+                await agent.respondPermission(
                   liveSessionId,
                   ev.permissionId,
                   true,
@@ -1720,11 +1749,14 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     async abortTurn() {
-      const { sessions, activeSessionId, agentBusy } = get();
-      if (!agentBusy || primaryAgent === null) return;
-      const sessionId =
-        sessions.find((s) => s.id === activeSessionId)?.agentSessionId ?? null;
-      await primaryAgent.abort(sessionId);
+      const { sessions, activeSessionId, agentBusy, selectedModel } = get();
+      const agent = resolveAgentPort(agents, selectedModel);
+      if (!agentBusy || agent === null) return;
+      const sessionId = reuseAgentSessionId(
+        sessions.find((s) => s.id === activeSessionId),
+        agent.id,
+      );
+      await agent.abort(sessionId);
       clearMismatchCheck();
       restoreHeldQueue();
       set({ agentBusy: false });
@@ -1771,14 +1803,16 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       const normalized = answers
         .map((row) => row.map((cell) => cell.trim()).filter((cell) => cell !== ""))
         .filter((row) => row.length > 0);
-      if (normalized.length === 0 || primaryAgent?.respondQuestion == null) {
+      const agent = resolveAgentPort(agents, get().selectedModel);
+      if (normalized.length === 0 || agent?.respondQuestion == null) {
         return;
       }
       const root = get().projectMeta?.root;
       if (root == null || root === "") return;
-      const sessionId =
-        get().sessions.find((s) => s.id === get().activeSessionId)
-          ?.agentSessionId ?? null;
+      const sessionId = reuseAgentSessionId(
+        get().sessions.find((s) => s.id === get().activeSessionId),
+        agent.id,
+      );
       if (sessionId == null || sessionId === "") return;
 
       const block = get()
@@ -1804,7 +1838,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       }));
 
       try {
-        await primaryAgent.respondQuestion(
+        await agent.respondQuestion(
           sessionId,
           block.questionId,
           normalized,
@@ -1855,76 +1889,93 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     async refreshAgent() {
-      if (primaryAgent === null) {
+      if (agents.length === 0) {
         set({ agentStatus: "down", agentDetail: "sin adapter" });
         return;
       }
       set({ agentStatus: "checking", agentDetail: null });
 
-      if (primaryAgent.ensureRuntime != null) {
-        const directory =
-          get().projectMeta?.root ?? get().lastProject ?? "";
+      const directory =
+        get().projectMeta?.root ?? get().lastProject ?? "";
+      const allModels: ModelRef[] = [];
+      const details: string[] = [];
+      let anyOk = false;
+      let version: string | null = null;
+
+      for (const port of agents) {
         try {
-          await primaryAgent.ensureRuntime(directory);
+          if (port.ensureRuntime != null) {
+            await port.ensureRuntime(directory);
+          }
+          const health = await port.health();
+          if (!health.ok) {
+            details.push(`${port.label}: ${health.detail ?? "no responde"}`);
+            continue;
+          }
+          anyOk = true;
+          if (version == null && health.version != null) {
+            version = health.version;
+          }
+          try {
+            allModels.push(...(await port.listModels()));
+          } catch (err) {
+            details.push(
+              `${port.label}: ${err instanceof Error ? err.message : String(err)}`,
+            );
+          }
         } catch (err) {
-          set({
-            agentStatus: "down",
-            agentDetail:
-              err instanceof Error
-                ? err.message
-                : "No pude arrancar OpenCode.",
-            agentModels: [],
-            selectedModel: null,
-          });
-          return;
+          details.push(
+            `${port.label}: ${err instanceof Error ? err.message : String(err)}`,
+          );
         }
       }
 
-      const health = await primaryAgent.health();
-      if (!health.ok) {
+      if (!anyOk) {
         set({
           agentStatus: "down",
-          agentDetail: health.detail ?? "no responde",
+          agentDetail: details[0] ?? "no responde",
           agentModels: [],
           selectedModel: null,
         });
         return;
       }
-      try {
-        const models = await primaryAgent.listModels();
-        const { selectedModel } = get();
-        const still =
-          selectedModel != null &&
-          models.some(
-            (m) =>
-              m.providerId === selectedModel.providerId &&
-              m.modelId === selectedModel.modelId,
-          );
-        const fromPrefs = modelFromPrefs(models, savedAgentPrefs);
-        const nextModel =
-          still
-            ? selectedModel
-            : fromPrefs ?? pickDefaultModel(models);
-        set({
-          agentStatus: "up",
-          agentDetail: health.version ?? null,
-          agentModels: models,
-          selectedModel: nextModel,
-        });
-        if (nextModel != null) {
-          void persistAgentPrefs();
-        }
-      } catch (err) {
-        set({
-          agentStatus: "down",
-          agentDetail: err instanceof Error ? err.message : String(err),
-          agentModels: [],
-          selectedModel: null,
-        });
+
+      const { selectedModel } = get();
+      const fresh =
+        selectedModel == null
+          ? undefined
+          : allModels.find(
+              (m) =>
+                m.providerId === selectedModel.providerId &&
+                m.modelId === selectedModel.modelId,
+            );
+      const fromPrefs = modelFromPrefs(allModels, savedAgentPrefs);
+      const nextModel = fresh ?? fromPrefs ?? pickDefaultModel(allModels);
+      const nextParams = pickParamValues(
+        nextModel?.capabilities.params,
+        fresh != null
+          ? get().modelParamValues
+          : (savedAgentPrefs?.paramValues ?? {}),
+      );
+      set({
+        agentStatus: "up",
+        agentDetail:
+          details.length > 0
+            ? details.join(" · ")
+            : version,
+        agentModels: allModels,
+        selectedModel: nextModel,
+        modelParamValues: nextParams,
+      });
+      if (nextModel != null) {
+        void persistAgentPrefs();
       }
     },
 
     setModel(model) {
+      const prev = get().selectedModel;
+      const prevPort = prev == null ? null : resolveAgentPort(agents, prev);
+      const nextPort = resolveAgentPort(agents, model);
       const variants = model.capabilities.reasoningVariants ?? [];
       let effort = get().reasoningEffort;
       if (
@@ -1934,12 +1985,56 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       ) {
         effort = variants.includes("high") ? "high" : variants[0]!;
       }
-      set({ selectedModel: model, reasoningEffort: effort });
-      void persistAgentPrefs();
+      const paramValues = pickParamValues(
+        model.capabilities.params,
+        get().modelParamValues,
+      );
+      const applyModel = (): void => {
+        if (prev != null && prevPort?.id !== nextPort?.id) {
+          const forked = forkChatIfAdapterChanged({
+            sessions: get().sessions,
+            activeSessionId: get().activeSessionId,
+            prevAdapterId: prevPort?.id ?? null,
+            nextAdapterId: nextPort?.id ?? null,
+          });
+          set({
+            selectedModel: model,
+            reasoningEffort: effort,
+            modelParamValues: paramValues,
+            sessions: forked.sessions,
+            activeSessionId: forked.activeSessionId,
+            agentSessions: [],
+          });
+          void get().refreshAgentSessions();
+        } else {
+          set({
+            selectedModel: model,
+            reasoningEffort: effort,
+            modelParamValues: paramValues,
+          });
+        }
+        void persistAgentPrefs();
+      };
+      if (
+        prev != null &&
+        prevPort?.id !== nextPort?.id &&
+        get().agentBusy
+      ) {
+        void get().abortTurn().finally(applyModel);
+        return;
+      }
+      applyModel();
     },
 
     setReasoningEffort(effort) {
       set({ reasoningEffort: effort });
+      void persistAgentPrefs();
+    },
+
+    setModelParam(id, value) {
+      set((s) => ({
+        modelParamValues: { ...s.modelParamValues, [id]: value },
+      }));
       void persistAgentPrefs();
     },
 
@@ -1952,7 +2047,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     async refreshAgentSessions() {
-      if (primaryAgent?.listSessions == null) {
+      const agent = resolveAgentPort(agents, get().selectedModel);
+      if (agent?.listSessions == null) {
         set({ agentSessions: [] });
         return;
       }
@@ -1962,7 +2058,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         return;
       }
       try {
-        const list = await primaryAgent.listSessions(root);
+        const list = await agent.listSessions(root);
         set({ agentSessions: list });
       } catch {
         set({ agentSessions: [] });
@@ -1970,11 +2066,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     bindAgentSession(agentSessionId) {
+      const adapterId =
+        resolveAgentPort(agents, get().selectedModel)?.id ?? null;
       set((s) => ({
         sessions: s.sessions.map((sess) =>
           sess.id !== s.activeSessionId
             ? sess
-            : { ...sess, agentSessionId },
+            : { ...sess, agentSessionId, agentAdapterId: adapterId },
         ),
       }));
       const root = get().projectMeta?.root;
@@ -1991,7 +2089,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         get().bindAgentSession(agentSessionId);
         return;
       }
-      const session = { ...newChatSession(title ?? null), agentSessionId };
+      const session = {
+        ...newChatSession(title ?? null),
+        agentSessionId,
+        agentAdapterId:
+          resolveAgentPort(agents, get().selectedModel)?.id ?? null,
+      };
       set({
         sessions: [...sessions, session],
         activeSessionId: session.id,
@@ -2018,19 +2121,20 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     async deleteAgentSession(sessionId) {
-      if (primaryAgent?.deleteSession == null) {
+      const agent = resolveAgentPort(agents, get().selectedModel);
+      if (agent?.deleteSession == null) {
         throw new Error("El agente no soporta eliminar sesiones.");
       }
       const root = get().projectMeta?.root;
       if (root == null || root === "") {
         throw new Error("No hay proyecto abierto.");
       }
-      await primaryAgent.deleteSession(sessionId, root);
+      await agent.deleteSession(sessionId, root);
       set((s) => ({
         agentSessions: s.agentSessions.filter((sess) => sess.id !== sessionId),
         sessions: s.sessions.map((sess) =>
           sess.agentSessionId === sessionId
-            ? { ...sess, agentSessionId: null }
+            ? { ...sess, agentSessionId: null, agentAdapterId: null }
             : sess,
         ),
       }));
@@ -2162,12 +2266,15 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
   });
 
   async function persistAgentPrefs(): Promise<void> {
-    const { selectedModel, reasoningEffort, agentPorts } = store.getState();
+    const { selectedModel, reasoningEffort, modelParamValues, agentPorts } =
+      store.getState();
     await prefs.setAgentPrefs({
       providerId:
         selectedModel?.providerId ?? agentPorts[0]?.id ?? null,
       modelId: selectedModel?.modelId ?? null,
       reasoningEffort,
+      paramValues:
+        Object.keys(modelParamValues).length > 0 ? modelParamValues : null,
     });
   }
 

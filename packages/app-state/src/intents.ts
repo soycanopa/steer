@@ -50,6 +50,8 @@ export type ChatSession = {
   createdAt: number;
   blocks: TranscriptBlock[];
   agentSessionId: string | null;
+  /** AgentPort que emitió `agentSessionId`. Otro adapter no lo reutiliza. */
+  agentAdapterId: string | null;
 };
 
 export function newChatSession(title: string | null = null): ChatSession {
@@ -59,6 +61,7 @@ export function newChatSession(title: string | null = null): ChatSession {
     createdAt: Date.now(),
     blocks: [],
     agentSessionId: null,
+    agentAdapterId: null,
   };
 }
 

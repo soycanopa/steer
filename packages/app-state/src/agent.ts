@@ -1,7 +1,13 @@
 // agentSlice — estado del AgentPort seleccionado (TRD §10). app-state
 // solo ve el contrato de packages/ports; los adapters se inyectan.
 
-import type { AgentMode, AgentPort, AgentSessionSummary, ModelRef } from "@steer/ports";
+import type {
+  AgentMode,
+  AgentPort,
+  AgentSessionSummary,
+  ModelParamDef,
+  ModelRef,
+} from "@steer/ports";
 
 export type AgentStatus = "unknown" | "checking" | "up" | "down";
 
@@ -12,7 +18,7 @@ export type PermissionPolicy = "default" | "always";
 export type ReasoningEffort = "low" | "high" | "max";
 
 export type AgentSlice = {
-  /** Ports disponibles (composition root). El seleccionado es el primero. */
+  /** Ports disponibles (composition root). Apply usa resolveAgentPort. */
   agentPorts: AgentPort[];
   agentStatus: AgentStatus;
   agentDetail: string | null;
@@ -20,6 +26,8 @@ export type AgentSlice = {
   selectedModel: ModelRef | null;
   /** Effort de reasoning del modelo seleccionado. */
   reasoningEffort: ReasoningEffort;
+  /** Valores de capabilities.params (id → value del catálogo). */
+  modelParamValues: Record<string, string>;
   /** Modo ask | plan | agent (build). */
   agentMode: AgentMode;
   permissionPolicy: PermissionPolicy;
@@ -37,6 +45,7 @@ export function initialAgentSlice(agents: AgentPort[] = []): AgentSlice {
     agentModels: [],
     selectedModel: null,
     reasoningEffort: "high",
+    modelParamValues: {},
     agentMode: "agent",
     permissionPolicy: "default",
     agentSessions: [],
@@ -47,4 +56,22 @@ export function initialAgentSlice(agents: AgentPort[] = []): AgentSlice {
 /** Modelo por defecto para P0: el primero que devuelve listModels(). */
 export function pickDefaultModel(models: ModelRef[]): ModelRef | null {
   return models[0] ?? null;
+}
+
+export function pickParamValues(
+  params: ModelParamDef[] | undefined,
+  prev: Record<string, string> = {},
+): Record<string, string> {
+  const next: Record<string, string> = {};
+  for (const param of params ?? []) {
+    const allowed = new Set(param.values.map((v) => v.value));
+    const keep = prev[param.id];
+    if (keep != null && allowed.has(keep)) {
+      next[param.id] = keep;
+      continue;
+    }
+    const first = param.values[0]?.value;
+    if (first != null) next[param.id] = first;
+  }
+  return next;
 }

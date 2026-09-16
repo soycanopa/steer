@@ -17,7 +17,8 @@ export type {
   AgentStatus,
   PermissionPolicy,
 } from "./agent";
-export { initialAgentSlice, pickDefaultModel } from "./agent";
+export { initialAgentSlice, pickDefaultModel, pickParamValues } from "./agent";
+export { resolveAgentPort } from "./resolve-agent";
 export type {
   ChatAttachment,
   ChatSession,
