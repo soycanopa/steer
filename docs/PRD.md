@@ -84,7 +84,7 @@ Un loop cerrado, un proyecto, un agente, una ruta visible.
 
 No construir esto ahora. Si aparece la tentación, releer esta lista.
 
-- Canvas infinito con todas las rutas como frames (un preview + switcher de ruta basta)
+- Canvas de diseño (Figma / Paper / Fountible): frames vacíos, capas que no son el DOM, zoom de mesa, archivo de diseño. Un preview en P0; **Vistas** (P2) son N iframes del mismo `dev`, ver [VISTAS.md](./VISTAS.md)
 - Escribir source desde sliders
 - Fork de Stacki / clonar UX pixel-perfect de Forge
 - Multi-agente simultáneo, ACP genérico, Claude Code / Grok Build adapters
@@ -107,6 +107,16 @@ P1 (después del loop P0, no antes):
 - Diff del turno (vía `AgentPort`, no vía fetch OpenCode en UI)
 - Permisos del agente (accept / deny) si el port los emite
 - Segundo adapter (`packages/agent-grok` o `agent-claude`) registrando el mismo `AgentPort`
+
+P2 — **Vistas** (decisión 2026-09-16, spec en [VISTAS.md](./VISTAS.md)):
+
+- Toggle Vista única | Vistas. Misma ruta a 1440 / 768 / 390 (desktop, tablet, móvil)
+- Un selection. Overlay replicado a stages de la misma ruta. Tope 4 (el cuarto es otra ruta)
+- Al Aplicar: lote + screenshot del stage activo. `ApplyPayload.board?` como contexto
+- No es canvas de diseño: cada recuadro es un iframe del `dev`, no un artboard
+- No implementar hasta que el loop P0 cierre
+
+El “canvas infinito con todas las rutas como frames” de la lista de arriba sigue fuera. Vistas no lo abre.
 
 ## 8. Experiencia de referencia (no spec)
 

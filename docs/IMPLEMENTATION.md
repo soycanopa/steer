@@ -251,6 +251,7 @@ Si 6 o 7 fallan, el prototipo no está hecho, aunque la UI se vea bien.
 - Diff viewer del turno.
 - Screenshot anotado.
 - Switcher de rutas Start.
+- **Vistas** (P2): misma ruta a 1440 / 768 / 390. Spec `docs/VISTAS.md`. Primero `PreviewPort` multi-stage, después el grid. No es un canvas de diseño.
 - Plugin Vite `@steer/inspect` (sustituye el proxy inject).
 - Alcance `token` / variant CVA.
 - Empaquetado notarizado macOS.

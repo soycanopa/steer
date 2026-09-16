@@ -51,7 +51,9 @@ Un provider nuevo = `packages/agent-<id>` + una línea en `apps/desktop/src/comp
 
 ## Docs
 
-Leer en este orden: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`docs/PRD.md`](docs/PRD.md), [`docs/TRD.md`](docs/TRD.md), [`docs/UX.md`](docs/UX.md), [`docs/UI.md`](docs/UI.md), [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md), [`AGENTS.md`](AGENTS.md).
+Leer en este orden: [`ARCHITECTURE.md`](ARCHITECTURE.md), [`docs/PRD.md`](docs/PRD.md), [`docs/TRD.md`](docs/TRD.md), [`docs/UX.md`](docs/UX.md), [`docs/UI.md`](docs/UI.md), [`docs/IMPLEMENTATION.md`](docs/IMPLEMENTATION.md), [`docs/VISTAS.md`](docs/VISTAS.md), [`AGENTS.md`](AGENTS.md).
+
+**Vistas** (P2): misma ruta a desktop / tablet / móvil a la vez. No es un canvas de diseño. No se construye antes de cerrar el loop P0.
 
 ## Fuera de alcance (prototipo)
 
