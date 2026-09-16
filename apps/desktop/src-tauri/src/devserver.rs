@@ -122,10 +122,10 @@ pub async fn project_dev_start(
         remove_state(&path);
     }
 
-    // 2. Tras un reinicio el mapa en memoria está vacío. No reutilizamos
-    //    URLs persistidas: el puerto puede haberlo ocupado otro proyecto
-    //    (el preview mostraba el fixture viejo hasta cambiar de tab).
-    //    Matamos el árbol huérfano de ESTE path y spawneamos de nuevo.
+    // 2. Servers de sesiones anteriores. Respetamos los que siguen vivos
+    //    (para reusar el preview y mostrarlo en el home) y limpiamos solo los
+    //    muertos. El estado guarda la URL REAL por proyecto, así que no hay
+    //    adivinanza de puerto por convención.
     let mut persisted = read_state();
     {
         let managed: Vec<String> = state
@@ -134,25 +134,40 @@ pub async fn project_dev_start(
             .keys()
             .cloned()
             .collect();
-        let orphans: Vec<String> = persisted
+        let others: Vec<String> = persisted
             .servers
             .keys()
             .filter(|p| *p != &path && !managed.contains(p))
             .cloned()
             .collect();
-        if !orphans.is_empty() {
-            for orphan in orphans {
-                if let Some(entry) = persisted.servers.remove(&orphan) {
-                    process::kill_pgid(entry.pgid);
-                }
+        let mut changed = false;
+        for other in others {
+            let entry = match persisted.servers.get(&other).cloned() {
+                Some(entry) => entry,
+                None => continue,
+            };
+            if crate::upstream_probe::resolve(&entry.url).await.is_some() {
+                continue; // sigue vivo: se respeta
             }
+            persisted.servers.remove(&other);
+            process::kill_pgid(entry.pgid);
+            changed = true;
+        }
+        if changed {
             save_state(&persisted);
         }
     }
-    if let Some(entry) = persisted.servers.remove(&path) {
+    // Reusar el server persistido de ESTE path si sigue vivo.
+    if let Some(entry) = persisted.servers.get(&path).cloned() {
+        if let Some(url) = crate::upstream_probe::resolve(&entry.url).await {
+            return Ok(DevStartInfo {
+                url,
+                spawned: false,
+            });
+        }
         process::kill_pgid(entry.pgid);
+        persisted.servers.remove(&path);
         save_state(&persisted);
-        tokio::time::sleep(Duration::from_millis(400)).await;
     }
     // 3. Script `dev` presente.
     let pkg = crate::project::read_package_json(root)?;
@@ -215,6 +230,31 @@ pub async fn project_dev_start(
             ))
         }
     }
+}
+
+/// URL del dev server de un proyecto si está vivo (sin spawnear). Lo usa el
+/// home para mostrar previews live de los recientes.
+#[tauri::command]
+pub async fn project_preview_url(
+    path: String,
+    state: tauri::State<'_, DevServerMap>,
+) -> Result<Option<String>, String> {
+    let cached = state
+        .lock()
+        .expect("devserver map poisoned")
+        .get(&path)
+        .map(|dev| dev.url.clone());
+    if let Some(url) = cached {
+        if let Some(ready) = crate::upstream_probe::resolve(&url).await {
+            return Ok(Some(ready));
+        }
+    }
+    if let Some(entry) = read_state().servers.get(&path) {
+        if let Some(ready) = crate::upstream_probe::resolve(&entry.url).await {
+            return Ok(Some(ready));
+        }
+    }
+    Ok(None)
 }
 
 #[tauri::command]

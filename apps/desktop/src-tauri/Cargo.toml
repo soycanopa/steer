@@ -31,6 +31,15 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "blo
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 
+# Snapshot nativo del preview (home): WKWebView.takeSnapshot.
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = { version = "0.3", features = ["NSData", "NSDictionary", "NSString"] }
+objc2-app-kit = { version = "0.3", features = ["NSImage", "NSBitmapImageRep"] }
+objc2-core-foundation = { version = "0.3", features = ["CFCGTypes"] }
+objc2-web-kit = { version = "0.3", features = ["WKWebView", "WKSnapshotConfiguration", "block2"] }
+block2 = "0.6"
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]
