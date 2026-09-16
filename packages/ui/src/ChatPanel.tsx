@@ -122,6 +122,7 @@ export type ChatPanelProps = {
   providerGroups: ProviderGroupView[];
   selectedModelKey: string | null;
   reasoningEffort: ReasoningEffortUi;
+  modelParamValues: Record<string, string>;
   showModelReasoning: boolean;
   permissionPolicy: PermissionPolicyUi;
   agentBusy: boolean;
@@ -135,6 +136,7 @@ export type ChatPanelProps = {
   onSelectSession(id: string): void;
   onSelectModel(key: string): void;
   onSetReasoningEffort(effort: ReasoningEffortUi): void;
+  onSetModelParam(id: string, value: string): void;
   onSetPermissionPolicy(policy: PermissionPolicyUi): void;
   onRefreshAgentSessions(): void;
   onOpenAgentSession(id: string, title?: string): void;
@@ -162,6 +164,7 @@ export function ChatPanel({
   providerGroups,
   selectedModelKey,
   reasoningEffort,
+  modelParamValues,
   showModelReasoning,
   permissionPolicy,
   agentBusy,
@@ -174,6 +177,7 @@ export function ChatPanel({
   onSelectSession,
   onSelectModel,
   onSetReasoningEffort,
+  onSetModelParam,
   onSetPermissionPolicy,
   onRefreshAgentSessions,
   onOpenAgentSession,
@@ -414,9 +418,11 @@ export function ChatPanel({
           providerGroups={providerGroups}
           selectedModelKey={selectedModelKey}
           reasoningEffort={reasoningEffort}
+          modelParamValues={modelParamValues}
           showModelReasoning={showModelReasoning}
           onSelectModel={onSelectModel}
           onSetReasoningEffort={onSetReasoningEffort}
+          onSetModelParam={onSetModelParam}
           permissionPolicy={permissionPolicy}
           onSetPermissionPolicy={onSetPermissionPolicy}
           agentOnline={agentOnline}
@@ -1171,9 +1177,11 @@ function Composer({
   providerGroups,
   selectedModelKey,
   reasoningEffort,
+  modelParamValues,
   showModelReasoning,
   onSelectModel,
   onSetReasoningEffort,
+  onSetModelParam,
   permissionPolicy,
   onSetPermissionPolicy,
   agentOnline,
@@ -1191,9 +1199,11 @@ function Composer({
   providerGroups: ProviderGroupView[];
   selectedModelKey: string | null;
   reasoningEffort: ReasoningEffortUi;
+  modelParamValues: Record<string, string>;
   showModelReasoning: boolean;
   onSelectModel(key: string): void;
   onSetReasoningEffort(effort: ReasoningEffortUi): void;
+  onSetModelParam(id: string, value: string): void;
   permissionPolicy: PermissionPolicyUi;
   onSetPermissionPolicy(policy: PermissionPolicyUi): void;
   agentOnline: boolean;
@@ -1272,10 +1282,12 @@ function Composer({
           providerGroups={providerGroups}
           selectedModelKey={selectedModelKey}
           reasoningEffort={reasoningEffort}
+          modelParamValues={modelParamValues}
           showReasoning={showModelReasoning}
           agentOnline={agentOnline}
           onSelectModel={onSelectModel}
           onSetReasoningEffort={onSetReasoningEffort}
+          onSetModelParam={onSetModelParam}
         />
 
         <div className="relative pointer-events-auto">

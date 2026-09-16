@@ -4,11 +4,15 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronDown, Search } from "lucide-react";
 import { OpencodeIcon } from "./icons/OpencodeIcon";
+import { CursorIcon } from "./icons/CursorIcon";
+import { GrokIcon } from "./icons/GrokIcon";
+import { AntigravityIcon } from "./icons/AntigravityIcon";
 
 type PopoverLayout = {
   left: number;
   bottom: number;
   width: number;
+  maxHeight: number;
 };
 
 function measurePopover(anchor: HTMLElement, width: number): PopoverLayout {
@@ -21,8 +25,15 @@ function measurePopover(anchor: HTMLElement, width: number): PopoverLayout {
     left,
     bottom: window.innerHeight - rect.top + 6,
     width,
+    maxHeight: Math.max(240, rect.top - margin),
   };
 }
+
+export type ModelParamView = {
+  id: string;
+  label: string;
+  values: Array<{ value: string; label: string }>;
+};
 
 export type ModelOptionView = {
   key: string;
@@ -30,6 +41,8 @@ export type ModelOptionView = {
   reasoning: boolean;
   /** Vacío = todas las opciones si reasoning. */
   efforts: ReasoningEffortUi[];
+  adapterId: string;
+  params: ModelParamView[];
 };
 
 /** Adapter de agente registrado en composition (hoy: solo OpenCode). */
@@ -62,10 +75,12 @@ export type ModelSelectorProps = {
   providerGroups: ProviderGroupView[];
   selectedModelKey: string | null;
   reasoningEffort: ReasoningEffortUi;
+  modelParamValues: Record<string, string>;
   showReasoning: boolean;
   agentOnline: boolean;
   onSelectModel(key: string): void;
   onSetReasoningEffort(effort: ReasoningEffortUi): void;
+  onSetModelParam(id: string, value: string): void;
 };
 
 function findModel(
@@ -85,10 +100,12 @@ export function ModelSelector({
   providerGroups,
   selectedModelKey,
   reasoningEffort,
+  modelParamValues,
   showReasoning,
   agentOnline,
   onSelectModel,
   onSetReasoningEffort,
+  onSetModelParam,
 }: ModelSelectorProps) {
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState("");
@@ -97,27 +114,49 @@ export function ModelSelector({
   const [popoverModelKey, setPopoverModelKey] = useState<string | null>(null);
   const anchorRef = useRef<HTMLButtonElement>(null);
 
-  const activeAgent = agents[0] ?? null;
+  const [activeAgentId, setActiveAgentId] = useState<string | null>(null);
+  const activeAgent =
+    agents.find((a) => a.id === (activeAgentId ?? agents[0]?.id)) ??
+    agents[0] ??
+    null;
   const totalModels = providerGroups.reduce((n, g) => n + g.models.length, 0);
+
+  const tabGroups = useMemo(() => {
+    if (activeAgent == null || agents.length <= 1) return providerGroups;
+    return providerGroups
+      .map((g) => ({
+        ...g,
+        models: g.models.filter((m) => m.adapterId === activeAgent.id),
+      }))
+      .filter((g) => g.models.length > 0);
+  }, [providerGroups, activeAgent, agents.length]);
 
   const effectiveModelKey = open
     ? (popoverModelKey ?? selectedModelKey)
     : selectedModelKey;
-  const effectiveModel = findModel(providerGroups, effectiveModelKey);
+  const tabModel =
+    findModel(tabGroups, effectiveModelKey) ??
+    (!open ? findModel(providerGroups, selectedModelKey) : null);
+  const effectiveModel = tabModel;
+  // Antigravity: el effort ya va en el slug del modelo; no hay picker.
   const reasoningPanel =
-    effectiveModel?.reasoning === true ||
-    (effectiveModel == null && showReasoning);
+    effectiveModel != null &&
+    effectiveModel.adapterId !== "antigravity" &&
+    (effectiveModel.reasoning === true ||
+      (showReasoning && effectiveModel.key === selectedModelKey));
+  const paramPanel = (effectiveModel?.params.length ?? 0) > 0;
+  const sidePanel = reasoningPanel || paramPanel;
   const effortOptions =
     effectiveModel != null && effectiveModel.efforts.length > 0
       ? ALL_EFFORTS.filter((e) => effectiveModel.efforts.includes(e))
       : ALL_EFFORTS;
 
-  const popoverWidth = reasoningPanel ? 328 : 228;
+  const popoverWidth = sidePanel ? 328 : 228;
 
   const filteredGroups = useMemo(() => {
     const q = search.trim().toLowerCase();
-    if (q === "") return providerGroups;
-    return providerGroups
+    if (q === "") return tabGroups;
+    return tabGroups
       .map((g) => ({
         ...g,
         models: g.models.filter(
@@ -128,31 +167,50 @@ export function ModelSelector({
         ),
       }))
       .filter((g) => g.models.length > 0);
-  }, [providerGroups, search]);
+  }, [tabGroups, search]);
 
   const selectedLabel = useMemo(() => {
     if (selectedModelKey == null) {
-      return agentOnline ? "Modelo" : "OpenCode off";
+      return agentOnline ? "Modelo" : "Agente off";
     }
     const m = findModel(providerGroups, selectedModelKey);
     if (m == null) return "Modelo";
     const name =
-      m.label.length > 18 ? `${m.label.slice(0, 16)}…` : m.label;
-    if (m.reasoning) {
+      m.label.length > 14 ? `${m.label.slice(0, 12)}…` : m.label;
+    if (m.reasoning && m.adapterId !== "antigravity") {
       return `${name} · ${EFFORT_LABELS[reasoningEffort]}`;
     }
+    const paramBits: string[] = [];
+    for (const param of m.params) {
+      const value = modelParamValues[param.id];
+      const opt = param.values.find((v) => v.value === value);
+      if (opt != null && opt.value !== param.values[0]?.value) {
+        paramBits.push(opt.label);
+      }
+    }
+    if (paramBits.length > 0) {
+      return `${name} · ${paramBits.join(" · ")}`;
+    }
     return name;
-  }, [providerGroups, selectedModelKey, agentOnline, reasoningEffort]);
+  }, [
+    providerGroups,
+    selectedModelKey,
+    agentOnline,
+    reasoningEffort,
+    modelParamValues,
+  ]);
 
   const disabled = totalModels === 0;
 
   useEffect(() => {
     if (open) {
       setPopoverModelKey(selectedModelKey);
+      const selected = findModel(providerGroups, selectedModelKey);
+      if (selected != null) setActiveAgentId(selected.adapterId);
     } else {
       setPopoverModelKey(null);
     }
-  }, [open, selectedModelKey]);
+  }, [open, selectedModelKey, providerGroups]);
 
   useLayoutEffect(() => {
     if (!open || anchorRef.current == null) {
@@ -171,7 +229,7 @@ export function ModelSelector({
       window.removeEventListener("resize", update);
       window.removeEventListener("scroll", update, true);
     };
-  }, [open, popoverWidth, reasoningPanel]);
+  }, [open, popoverWidth, sidePanel]);
 
   const popover =
     open && !disabled && layout != null
@@ -183,29 +241,51 @@ export function ModelSelector({
             <div
               role="dialog"
               aria-label="Selector de modelo"
-              className="fixed z-[201] flex overflow-hidden rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-1)] shadow-xl"
+              className="fixed z-[201] flex min-h-0 overflow-hidden rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-1)] shadow-xl"
               style={{
                 left: layout.left,
                 bottom: layout.bottom,
                 width: layout.width,
+                height: Math.min(layout.maxHeight, 328),
               }}
               onMouseDown={(e) => e.stopPropagation()}
             >
-              {/* Adapter (hoy: solo OpenCode) */}
-              <div className="flex w-11 shrink-0 flex-col items-center gap-1 border-r border-[var(--line)] bg-[var(--bg-0)] py-2">
-                {agents.map((agent) => (
-                  <div
-                    key={agent.id}
-                    title={agent.label}
-                    className="flex size-7 items-center justify-center rounded-[6px] bg-[var(--bg-3)] ring-1 ring-[var(--line)]"
-                  >
-                    <OpencodeIcon className="size-3.5" title={agent.label} />
-                  </div>
-                ))}
+              {/* Adapter registrado en composition */}
+              <div className="flex w-11 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-[var(--line)] bg-[var(--bg-0)] py-2 min-h-0">
+                {agents.map((agent) => {
+                  const selected = agent.id === activeAgent?.id;
+                  return (
+                    <button
+                      key={agent.id}
+                      type="button"
+                      title={agent.label}
+                      onClick={() => setActiveAgentId(agent.id)}
+                      className={`flex size-7 items-center justify-center rounded-[6px] bg-[var(--bg-3)] ${
+                        selected
+                          ? "ring-2 ring-[var(--text-0)]"
+                          : "ring-1 ring-[var(--line)]"
+                      }`}
+                    >
+                      {agent.id === "opencode" ? (
+                        <OpencodeIcon className="size-3.5" title={agent.label} />
+                      ) : agent.id === "cursor" ? (
+                        <CursorIcon className="size-3.5" title={agent.label} />
+                      ) : agent.id === "grok" ? (
+                        <GrokIcon className="size-3.5" title={agent.label} />
+                      ) : agent.id === "antigravity" ? (
+                        <AntigravityIcon className="size-3.5" title={agent.label} />
+                      ) : (
+                        <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-0)]">
+                          {agent.label.slice(0, 1)}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
               </div>
 
               {/* Modelos por proveedor conectado */}
-              <div className="flex min-w-0 flex-1 flex-col">
+              <div className="flex min-h-0 min-w-0 flex-1 flex-col">
                 <div className="flex shrink-0 items-center gap-2 border-b border-[var(--line)] px-2.5 py-2">
                   <span className="min-w-0 flex-1 truncate text-[length:var(--fs-1)] text-[var(--text-2)]">
                     {activeAgent?.label ?? "OpenCode"}
@@ -221,7 +301,7 @@ export function ModelSelector({
                     className="w-full rounded-[var(--radius-s)] bg-[var(--bg-2)] px-2 py-1 text-[length:var(--fs-1)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)]"
                   />
                 </div>
-                <div className="max-h-52 overflow-y-auto py-1">
+                <div className="min-h-0 flex-1 overflow-y-auto py-1">
                   {filteredGroups.length === 0 ? (
                     <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
                       Sin modelos
@@ -242,7 +322,9 @@ export function ModelSelector({
                                   onClick={() => {
                                     setPopoverModelKey(m.key);
                                     onSelectModel(m.key);
-                                    if (!m.reasoning) setOpen(false);
+                                    if (!m.reasoning && m.params.length === 0) {
+                                      setOpen(false);
+                                    }
                                   }}
                                   className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors duration-120 ${
                                     selected
@@ -272,38 +354,80 @@ export function ModelSelector({
               </div>
 
               {/* Reasoning */}
-              {reasoningPanel ? (
-                <div className="flex w-[92px] shrink-0 flex-col border-l border-[var(--line)]">
-                  <div className="border-b border-[var(--line)] px-2.5 py-2">
-                    <span className="text-[length:var(--fs-1)] text-[var(--text-2)]">
-                      Reasoning
-                    </span>
-                  </div>
-                  <ul className="py-1">
-                    {effortOptions.map((opt) => {
-                      const selected = opt === reasoningEffort;
-                      return (
-                        <li key={opt}>
-                          <button
-                            type="button"
-                            onClick={() => onSetReasoningEffort(opt)}
-                            className={`flex w-full items-center justify-between gap-1 px-2.5 py-1.5 text-left transition-colors duration-120 ${
-                              selected
-                                ? "bg-[var(--bg-3)] text-[var(--text-0)]"
-                                : "text-[var(--text-1)] hover:bg-[var(--bg-2)]"
-                            }`}
-                          >
-                            <span className="text-[length:var(--fs-1)]">
-                              {EFFORT_LABELS[opt]}
-                            </span>
-                            {selected ? (
-                              <Check size={13} strokeWidth={2} className="shrink-0 text-[var(--text-0)]" />
-                            ) : null}
-                          </button>
-                        </li>
-                      );
-                    })}
-                  </ul>
+              {sidePanel ? (
+                <div className="flex w-[92px] min-h-0 shrink-0 flex-col overflow-y-auto border-l border-[var(--line)]">
+                  {reasoningPanel ? (
+                    <>
+                      <div className="border-b border-[var(--line)] px-2.5 py-2">
+                        <span className="text-[length:var(--fs-1)] text-[var(--text-2)]">
+                          Reasoning
+                        </span>
+                      </div>
+                      <ul className="py-1">
+                        {effortOptions.map((opt) => {
+                          const selected = opt === reasoningEffort;
+                          return (
+                            <li key={opt}>
+                              <button
+                                type="button"
+                                onClick={() => onSetReasoningEffort(opt)}
+                                className={`flex w-full items-center justify-between gap-1 px-2.5 py-1.5 text-left transition-colors duration-120 ${
+                                  selected
+                                    ? "bg-[var(--bg-3)] text-[var(--text-0)]"
+                                    : "text-[var(--text-1)] hover:bg-[var(--bg-2)]"
+                                }`}
+                              >
+                                <span className="text-[length:var(--fs-1)]">
+                                  {EFFORT_LABELS[opt]}
+                                </span>
+                                {selected ? (
+                                  <Check size={13} strokeWidth={2} className="shrink-0 text-[var(--text-0)]" />
+                                ) : null}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </>
+                  ) : null}
+                  {(effectiveModel?.params ?? []).map((param) => (
+                    <div key={param.id}>
+                      <div className="border-b border-[var(--line)] px-2.5 py-2">
+                        <span className="text-[length:var(--fs-1)] text-[var(--text-2)]">
+                          {param.label}
+                        </span>
+                      </div>
+                      <ul className="py-1">
+                        {param.values.map((opt) => {
+                          const selected =
+                            (modelParamValues[param.id] ??
+                              param.values[0]?.value) === opt.value;
+                          return (
+                            <li key={opt.value}>
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  onSetModelParam(param.id, opt.value)
+                                }
+                                className={`flex w-full items-center justify-between gap-1 px-2.5 py-1.5 text-left transition-colors duration-120 ${
+                                  selected
+                                    ? "bg-[var(--bg-3)] text-[var(--text-0)]"
+                                    : "text-[var(--text-1)] hover:bg-[var(--bg-2)]"
+                                }`}
+                              >
+                                <span className="text-[length:var(--fs-1)]">
+                                  {opt.label}
+                                </span>
+                                {selected ? (
+                                  <Check size={13} strokeWidth={2} className="shrink-0 text-[var(--text-0)]" />
+                                ) : null}
+                              </button>
+                            </li>
+                          );
+                        })}
+                      </ul>
+                    </div>
+                  ))}
                 </div>
               ) : null}
             </div>
@@ -326,10 +450,10 @@ export function ModelSelector({
         }}
         title={
           disabled
-            ? "OpenCode no responde — no hay modelos"
+            ? "Ningún agente responde — no hay modelos"
             : selectedLabel
         }
-        className="flex h-6 max-w-[168px] min-w-0 items-center gap-1 rounded-[var(--radius-s)] bg-[var(--bg-3)] px-1.5 font-mono text-[length:var(--fs-0)] text-[var(--text-1)] transition-colors duration-120 enabled:hover:bg-[var(--bg-2)] disabled:opacity-40"
+        className="flex h-6 max-w-[128px] min-w-0 items-center gap-1 rounded-[var(--radius-s)] bg-[var(--bg-3)] px-1.5 font-mono text-[length:var(--fs-0)] text-[var(--text-1)] transition-colors duration-120 enabled:hover:bg-[var(--bg-2)] disabled:opacity-40"
       >
         <span className="min-w-0 flex-1 truncate text-left">{selectedLabel}</span>
         <ChevronDown
@@ -349,11 +473,13 @@ export function ModelSelector({
 export function groupModelsByProvider(
   models: Array<{
     providerId: string;
+    adapterId?: string;
     modelId: string;
     label: string;
     capabilities: {
       reasoning: boolean;
       reasoningVariants?: ReasoningEffortUi[];
+      params?: ModelParamView[];
     };
   }>,
 ): ProviderGroupView[] {
@@ -368,11 +494,15 @@ export function groupModelsByProvider(
       };
       map.set(m.providerId, group);
     }
+    const adapterId = m.adapterId ?? m.providerId;
+    const antigravity = adapterId === "antigravity";
     group.models.push({
       key: `${m.providerId}/${m.modelId}`,
       label: m.label,
-      reasoning: m.capabilities.reasoning,
-      efforts: m.capabilities.reasoningVariants ?? [],
+      reasoning: antigravity ? false : m.capabilities.reasoning,
+      efforts: antigravity ? [] : (m.capabilities.reasoningVariants ?? []),
+      adapterId,
+      params: m.capabilities.params ?? [],
     });
   }
   return Array.from(map.values()).sort((a, b) => a.label.localeCompare(b.label));
@@ -386,5 +516,8 @@ function formatConnectedProviderLabel(providerId: string): string {
   if (id.includes("minimax")) return "MiniMax";
   if (id.includes("zai")) return "Z.AI";
   if (id === "opencode") return "OpenCode";
+  if (id === "cursor") return "Cursor";
+  if (id === "grok" || id === "grok-build") return "Grok";
+  if (id === "antigravity") return "Antigravity";
   return id.charAt(0).toUpperCase() + id.slice(1);
 }

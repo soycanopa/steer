@@ -35,10 +35,12 @@ export type HomeComposerProps = {
   providerGroups: ProviderGroupView[];
   selectedModelKey: string | null;
   reasoningEffort: ReasoningEffortUi;
+  modelParamValues: Record<string, string>;
   showModelReasoning: boolean;
   agentOnline: boolean;
   onSelectModel(key: string): void;
   onSetReasoningEffort(effort: ReasoningEffortUi): void;
+  onSetModelParam(id: string, value: string): void;
   permissionPolicy: HomePermissionPolicy;
   onSetPermissionPolicy(policy: HomePermissionPolicy): void;
 };
@@ -89,10 +91,12 @@ export function HomeComposer({
   providerGroups,
   selectedModelKey,
   reasoningEffort,
+  modelParamValues,
   showModelReasoning,
   agentOnline,
   onSelectModel,
   onSetReasoningEffort,
+  onSetModelParam,
   permissionPolicy,
   onSetPermissionPolicy,
 }: HomeComposerProps) {
@@ -203,10 +207,12 @@ export function HomeComposer({
           providerGroups={providerGroups}
           selectedModelKey={selectedModelKey}
           reasoningEffort={reasoningEffort}
+          modelParamValues={modelParamValues}
           showReasoning={showModelReasoning}
           agentOnline={agentOnline}
           onSelectModel={onSelectModel}
           onSetReasoningEffort={onSetReasoningEffort}
+          onSetModelParam={onSetModelParam}
         />
 
         {/* Carpeta + nombre del proyecto */}
