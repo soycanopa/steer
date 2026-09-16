@@ -75,6 +75,11 @@ export type PrefsApi = {
   setAgentPrefs(prefs: AgentPrefs): Promise<void>;
   getLastAgentSession(projectRoot: string): Promise<string | null>;
   setLastAgentSession(projectRoot: string, sessionId: string): Promise<void>;
+  getRecentProjects(): Promise<string[]>;
+  setRecentProjects(paths: string[]): Promise<void>;
+  getProjectThumbnails(): Promise<Record<string, string>>;
+  setProjectThumbnail(projectRoot: string, dataUrl: string): Promise<void>;
+  clearProjectThumbnail(projectRoot: string): Promise<void>;
 };
 
 export type AppDeps = {
@@ -104,6 +109,11 @@ export type SteerState = ProjectSlice &
     switchProjectTab(path: string): Promise<void>;
     /** Cierra un tab de proyecto y apaga su dev server. */
     closeProjectTab(path: string): Promise<void>;
+    /**
+     * Elimina el proyecto de Steer: recents, historial, thumbnail, tab y
+     * dev server. NO toca archivos del disco.
+     */
+    deleteProject(path: string): Promise<void>;
     /** Cierra el proyecto activo y apaga preview/dev. */
     closeProject(): Promise<void>;
     /** Apaga solo el proxy del preview (el dev server sigue vivo). */
@@ -173,6 +183,8 @@ export type SteerState = ProjectSlice &
     navigatePreview(path: string): void;
     /** Relee `src/routes` del proyecto abierto y alinea previewPath. */
     refreshProjectRoutes(): Promise<void>;
+    /** Carga las URLs live de los recientes (previews del home). */
+    refreshRecentPreviewUrls(): Promise<void>;
     /** Responde una pregunta del agente (OpenCode question API). */
     answerQuestion(blockId: string, answers: string[][]): Promise<void>;
     /** Historial: crear sesión nueva y activarla. */
@@ -300,13 +312,24 @@ function applyWorkspaceSnapshot(
   });
 }
 
+/** Total de bloques de transcript del workspace (para el guard de persist). */
+function countBlocks(snap: WorkspaceSnapshot): number {
+  const sessions = snap.intents?.sessions ?? [];
+  return sessions.reduce((n, s) => n + (s.blocks?.length ?? 0), 0);
+}
+
 export function createAppStore({ projectPort, previewPort, prefs, agents }: AppDeps) {
   const primaryAgent = agents[0] ?? null;
   let bootstrapRun: Promise<void> | null = null;
+  let syncRun: Promise<void> | null = null;
+  // Generación de cambio de proyecto: una apertura nueva aborta la anterior
+  // (last-wins) para no abrir dos proyectos en paralelo.
+  let switchToken = 0;
   let savedAgentPrefs: AgentPrefs | null = null;
   let previewStartTask: Promise<void> | null = null;
   let agentTurnInFlight = false;
   let treeRequestTimers: ReturnType<typeof setTimeout>[] = [];
+  let thumbnailTimer: ReturnType<typeof setTimeout> | null = null;
 
   function clearTreeRequestTimers(): void {
     for (const t of treeRequestTimers) clearTimeout(t);
@@ -335,6 +358,46 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         }
       }, 16000),
     );
+  }
+
+  /** Snapshot del preview activo; lo persiste como thumbnail del root. */
+  async function captureThumbnailFor(root: string): Promise<void> {
+    if (root === "" || store.getState().previewStatus !== "live") return;
+    try {
+      const dataUrl = await previewPort.captureThumbnail();
+      if (dataUrl != null && dataUrl.startsWith("data:image/")) {
+        store.setState((s) => ({
+          projectThumbnails: { ...s.projectThumbnails, [root]: dataUrl },
+        }));
+        void prefs.setProjectThumbnail(root, dataUrl);
+      }
+    } catch {
+      // best-effort
+    }
+  }
+
+  /** Captura el thumbnail un rato después de quedar live (layout estable). */
+  function scheduleThumbnail(root: string): void {
+    if (thumbnailTimer !== null) clearTimeout(thumbnailTimer);
+    thumbnailTimer = setTimeout(() => {
+      thumbnailTimer = null;
+      const st = store.getState();
+      if (st.projectMeta?.root === root && st.previewStatus === "live") {
+        void captureThumbnailFor(root);
+      }
+    }, 3500);
+  }
+
+  /** Marca un proyecto como reciente (más nuevo primero, cap 8). Apaga los
+   *  dev servers que salen de la lista para no acumular procesos. */
+  function touchRecentProject(root: string): void {
+    if (root === "") return;
+    const current = store.getState().recentProjects;
+    const next = [root, ...current.filter((p) => p !== root)].slice(0, 8);
+    const dropped = current.filter((p) => !next.includes(p));
+    store.setState({ recentProjects: next });
+    void prefs.setRecentProjects(next);
+    for (const p of dropped) void projectPort.stopDev(p);
   }
 
   function modelFromPrefs(
@@ -377,6 +440,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     lastProject: null,
     projectRoutes: [],
     openProjectTabs: [],
+    recentProjects: [],
+    projectThumbnails: {},
+    recentPreviewUrls: {},
     createProgress: null,
     ...initialPreviewSlice,
     ...initialSelectionSlice,
@@ -396,6 +462,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           set({ reasoningEffort: agentPrefs.reasoningEffort });
         }
 
+        const [recents, thumbs] = await Promise.all([
+          prefs.getRecentProjects(),
+          prefs.getProjectThumbnails(),
+        ]);
+        set({ recentProjects: recents, projectThumbnails: thumbs });
+
         await get().syncPersistedWorkspace();
 
         void (async () => {
@@ -413,26 +485,37 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     async syncPersistedWorkspace() {
-      const [lastProject, savedTabs] = await Promise.all([
-        prefs.getLastProject(),
-        prefs.getOpenProjectTabs(),
-      ]);
-      const activeProject =
-        lastProject != null &&
-        (savedTabs.length === 0 || savedTabs.includes(lastProject))
-          ? lastProject
-          : savedTabs[savedTabs.length - 1] ?? lastProject;
+      // Guard: StrictMode monta App dos veces y ambas ramas llamaban a este
+      // método en paralelo, abriendo el proyecto (y arrancando el preview)
+      // dos veces → el proxy se reiniciaba y el iframe "parpadeaba".
+      if (syncRun !== null) return syncRun;
+      syncRun = (async () => {
+        const [lastProject, savedTabs] = await Promise.all([
+          prefs.getLastProject(),
+          prefs.getOpenProjectTabs(),
+        ]);
+        const activeProject =
+          lastProject != null &&
+          (savedTabs.length === 0 || savedTabs.includes(lastProject))
+            ? lastProject
+            : savedTabs[savedTabs.length - 1] ?? lastProject;
 
-      set({
-        lastProject: activeProject,
-        ...(savedTabs.length > 0 ? { openProjectTabs: savedTabs } : {}),
-      });
+        set({
+          lastProject: activeProject,
+          ...(savedTabs.length > 0 ? { openProjectTabs: savedTabs } : {}),
+        });
 
-      if (activeProject == null) return;
+        if (activeProject == null) return;
 
-      const current = get().projectMeta?.root;
-      if (get().projectStatus === "empty" || current !== activeProject) {
-        await get().openProject(activeProject);
+        const current = get().projectMeta?.root;
+        if (get().projectStatus === "empty" || current !== activeProject) {
+          await get().openProject(activeProject);
+        }
+      })();
+      try {
+        await syncRun;
+      } finally {
+        syncRun = null;
       }
     },
 
@@ -494,10 +577,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     async openProjectInNewTab(path) {
+      const token = ++switchToken;
       const current = get().projectMeta?.root;
       if (current != null && current !== path) {
         captureCurrentWorkspace(get, (root) => schedulePersistProjectWorkspace(root));
+        if (get().previewStatus === "live") void captureThumbnailFor(current);
         await get().detachPreview();
+        if (token !== switchToken) return;
         set({
           projectMeta: null,
           projectStatus: "opening",
@@ -505,7 +591,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         });
       }
 
+      if (token !== switchToken) return;
       set({ lastProject: path });
+      touchRecentProject(path);
       const tabs = get().openProjectTabs;
       if (!tabs.includes(path)) {
         set({ openProjectTabs: [...tabs, path] });
@@ -515,6 +603,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       let snap = restoreWorkspace(path);
       if (snap == null) {
         snap = await prefs.getProjectWorkspace(path);
+        if (token !== switchToken) return;
         if (snap != null) {
           cacheWorkspace(snap);
         }
@@ -522,6 +611,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       if (snap != null) {
         applyWorkspaceSnapshot(set, snap);
         await get().refreshProjectRoutes();
+        if (token !== switchToken) return;
         await get().startPreview();
         void persistWorkspacePrefs();
         void get().refreshAgent();
@@ -542,6 +632,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       });
       try {
         let meta: ProjectMeta = await projectPort.open(path);
+        if (token !== switchToken) return;
         if (!meta.hasDevtoolsVite) {
           try {
             meta = await projectPort.ensureDevtools(path);
@@ -550,6 +641,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           }
         }
         const routes = await projectPort.listRoutes(path);
+        if (token !== switchToken) return;
         set({
           projectStatus: "open",
           projectMeta: meta,
@@ -559,13 +651,16 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           previewError: null,
         });
         await get().refreshProjectRoutes();
+        if (token !== switchToken) return;
         await get().startPreview();
+        if (token !== switchToken) return;
         void persistWorkspacePrefs();
         void get().refreshAgent();
         void get()
           .refreshAgentSessions()
           .then(() => restoreAgentSessionForProject(path));
       } catch (err) {
+        if (token !== switchToken) return;
         set({
           projectStatus: "error",
           projectError: err instanceof Error ? err.message : String(err),
@@ -592,15 +687,15 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
     async closeProjectTab(path) {
       const tabs = get().openProjectTabs.filter((tab) => tab !== path);
-      deleteWorkspace(path);
-      void prefs.deleteProjectWorkspace(path);
-      try {
-        await projectPort.stopDev(path);
-      } catch {
-        // best-effort al cerrar tab.
-      }
+      // Cerrar un tab NO borra el historial: el workspace (memoria + disco)
+      // se conserva para que reabrir restaure el chat. Borrar es explícito
+      // (`deleteProject`). Tampoco apagamos el dev server.
+      void captureCurrentWorkspace(get, (root) =>
+        schedulePersistProjectWorkspace(root),
+      );
 
       if (get().projectMeta?.root === path) {
+        if (get().previewStatus === "live") void captureThumbnailFor(path);
         await get().detachPreview();
         if (tabs.length > 0) {
           const next = tabs[tabs.length - 1]!;
@@ -616,6 +711,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             ...initialIntents(),
           });
           await get().openProjectInNewTab(next);
+          void get().refreshRecentPreviewUrls();
           return;
         }
         set({
@@ -630,11 +726,41 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           ...initialIntents(),
         });
         void persistWorkspacePrefs();
+        void get().refreshRecentPreviewUrls();
         return;
       }
 
       set({ openProjectTabs: tabs });
       void persistWorkspacePrefs();
+      void get().refreshRecentPreviewUrls();
+    },
+
+    async deleteProject(path) {
+      // Cerrar el tab si está abierto (detach del proxy; ajusta tabs/activo).
+      if (get().openProjectTabs.includes(path)) {
+        await get().closeProjectTab(path);
+      }
+      // Detener su dev server.
+      try {
+        await projectPort.stopDev(path);
+      } catch {
+        // best-effort
+      }
+      // Borrar metadata de Steer (memoria + disco de prefs). NO toca archivos.
+      deleteWorkspace(path);
+      void prefs.deleteProjectWorkspace(path);
+      void prefs.clearProjectThumbnail(path);
+      const nextRecents = get().recentProjects.filter((p) => p !== path);
+      const nextThumbs = { ...get().projectThumbnails };
+      delete nextThumbs[path];
+      const nextUrls = { ...get().recentPreviewUrls };
+      delete nextUrls[path];
+      set({
+        recentProjects: nextRecents,
+        projectThumbnails: nextThumbs,
+        recentPreviewUrls: nextUrls,
+      });
+      void prefs.setRecentProjects(nextRecents);
     },
 
     async openProject(path) {
@@ -647,6 +773,17 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         return;
       }
       const root = meta.root;
+
+      // Ya live con URL para este mismo root: no reiniciar el proxy (cada
+      // reinicio cambia la URL y remonta el iframe → "parpadeo").
+      if (
+        get().projectStatus === "open" &&
+        get().previewStatus === "live" &&
+        get().previewUrl != null &&
+        get().projectMeta?.root === root
+      ) {
+        return;
+      }
 
       if (previewStartTask !== null) {
         await previewStartTask;
@@ -678,6 +815,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           });
           set({ tree: null });
           scheduleTreeRequests();
+          scheduleThumbnail(root);
         } catch (err) {
           if (get().projectMeta?.root !== root) {
             return;
@@ -1248,6 +1386,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               const options = first.options;
               set((s) => ({
                 agentBusy: false,
+                chatOpen: true,
                 sessions: s.sessions.map((sess) =>
                   sess.id !== s.activeSessionId
                     ? sess
@@ -1401,6 +1540,20 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       } catch {
         // best-effort
       }
+    },
+
+    async refreshRecentPreviewUrls() {
+      const paths = Array.from(
+        new Set([...get().recentProjects, ...get().openProjectTabs]),
+      );
+      const entries = await Promise.all(
+        paths.map(async (p) => [p, await projectPort.previewUrl(p)] as const),
+      );
+      const next: Record<string, string> = {};
+      for (const [p, url] of entries) {
+        if (url != null && url !== "") next[p] = url;
+      }
+      set({ recentPreviewUrls: next });
     },
 
     async answerQuestion(blockId, answers) {
@@ -1750,6 +1903,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
   persistProjectWorkspace = async (root: string) => {
     const snap = restoreWorkspace(root);
     if (snap == null) return;
+    // Guard anti-sobrescritura: no reemplazar un workspace con historial por
+    // uno vacío (evita pérdidas por resets transitorios).
+    const blocks = countBlocks(snap);
+    if (blocks === 0) {
+      const existing = await prefs.getProjectWorkspace(root);
+      if (existing != null && countBlocks(existing) > 0) return;
+    }
     await prefs.setProjectWorkspace(root, snap);
   };
 
