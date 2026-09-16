@@ -353,7 +353,7 @@ export function ChatPanel({
       </div>
 
       {/* Sin border-t: la columna chat no lleva línea superior sobre el composer. */}
-      <div className="relative shrink-0 px-3 pt-2 pb-3">
+      <div className="relative shrink-0 px-1.5 pt-2 pb-3">
         {pendingEdits.length > 0 || pendingComments.length > 0 ? (
           <div className="mb-2 flex flex-wrap items-center gap-1.5">
             <PendingEdits
@@ -424,36 +424,6 @@ export function ChatPanel({
       </div>
     </div>
   );
-}
-
-const TWEAK_PROP_LABELS: Partial<Record<TweakProp, string>> = {
-  fontSize: "Tamaño",
-  fontWeight: "Peso",
-  lineHeight: "Interlineado",
-  letterSpacing: "Tracking",
-  color: "Color",
-  backgroundColor: "Fondo",
-  textAlign: "Alineación",
-  width: "Ancho",
-  height: "Alto",
-  padding: "Padding",
-  margin: "Margen",
-  gap: "Gap",
-  flexDirection: "Dirección",
-  flexWrap: "Wrap",
-  justifyContent: "Justify",
-  alignItems: "Align",
-  maxWidth: "Max ancho",
-  objectFit: "Object fit",
-  fontStyle: "Estilo",
-  textDecoration: "Decoración",
-  borderRadius: "Radio",
-  opacity: "Opacidad",
-};
-
-export function tweakEditLabel(prop: TweakProp, to: string): string {
-  const name = TWEAK_PROP_LABELS[prop] ?? prop;
-  return `${name} · ${to}`;
 }
 
 /**
@@ -1046,6 +1016,20 @@ const ToolsSummaryPanel = memo(function ToolsSummaryPanel({
   runningCount: number;
   active?: boolean;
 }) {
+  const rows: TranscriptToolView[] = [];
+  const seen = new Set<string>();
+  for (const t of tools) {
+    if (t.id != null && t.id !== "") {
+      if (seen.has(t.id)) {
+        const idx = rows.findIndex((r) => r.id === t.id);
+        if (idx >= 0) rows[idx] = t;
+        continue;
+      }
+      seen.add(t.id);
+    }
+    rows.push(t);
+  }
+
   return (
     <details
       className="group rounded-[var(--radius-s)] border border-[var(--line)] bg-[var(--bg-1)]"
@@ -1058,7 +1042,7 @@ const ToolsSummaryPanel = memo(function ToolsSummaryPanel({
             aria-hidden
           />
           <span className={active ? "steer-shimmer" : undefined}>
-            Herramientas ({tools.length})
+            Herramientas ({rows.length})
           </span>
           {runningCount > 0 ? (
             <span className="text-[var(--warn)]">· {runningCount} en curso</span>
@@ -1066,7 +1050,7 @@ const ToolsSummaryPanel = memo(function ToolsSummaryPanel({
         </span>
       </summary>
       <ul className="space-y-0.5 border-t border-[var(--line)] px-2 py-1.5">
-        {tools.map((t, i) => (
+        {rows.map((t, i) => (
           <li
             key={t.id ?? `${t.name}-${i}`}
             className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
@@ -1127,7 +1111,20 @@ const AgentBlock = memo(function AgentBlock({
   status: "streaming" | "done" | "error";
 }) {
   const streaming = status === "streaming";
-  const runningTools = tools.filter((t) => t.status === "start").length;
+  const uniqueTools: TranscriptToolView[] = [];
+  const seenToolIds = new Set<string>();
+  for (const t of tools) {
+    if (t.id != null && t.id !== "") {
+      if (seenToolIds.has(t.id)) {
+        const idx = uniqueTools.findIndex((r) => r.id === t.id);
+        if (idx >= 0) uniqueTools[idx] = t;
+        continue;
+      }
+      seenToolIds.add(t.id);
+    }
+    uniqueTools.push(t);
+  }
+  const runningTools = uniqueTools.filter((t) => t.status === "start").length;
   const reasoningActive =
     streaming && reasoning !== "" && runningTools === 0 && text === "";
   const toolsActive = streaming && runningTools > 0;
@@ -1141,9 +1138,9 @@ const AgentBlock = memo(function AgentBlock({
         />
       ) : null}
 
-      {tools.length > 0 ? (
+      {uniqueTools.length > 0 ? (
         <ToolsSummaryPanel
-          tools={tools}
+          tools={uniqueTools}
           runningCount={runningTools}
           active={toolsActive}
         />
@@ -1220,7 +1217,10 @@ function Composer({
   }
 
   return (
-    <div className="relative rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] focus-within:border-[var(--accent)]">
+    <div
+      className="relative rounded-[var(--radius-input)] border-2 border-[var(--line)] bg-[var(--bg-0)] focus-within:border-[var(--accent)]"
+      style={{ boxShadow: "var(--shadow-input)" }}
+    >
       {attachments.length > 0 ? (
         <div className="flex gap-1.5 px-2 pt-2">
           {attachments.map((a) => (

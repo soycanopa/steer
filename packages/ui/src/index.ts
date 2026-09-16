@@ -1,6 +1,7 @@
 export { AppShell } from "./AppShell";
 export type { AppShellProps } from "./AppShell";
-export { ChatPanel, tweakEditLabel } from "./ChatPanel";
+export { ChatPanel } from "./ChatPanel";
+export { tweakEditLabel } from "./tweak-label";
 export {
   ModelSelector,
   groupModelsByProvider,
