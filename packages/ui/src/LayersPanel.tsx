@@ -56,19 +56,21 @@ export function LayersPanel({
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-1)]">
-      <div className="flex h-8 shrink-0 items-center gap-1 px-2">
-        <TabButton
-          active={tab === "layers"}
-          onClick={() => setTab("layers")}
-          icon={Layers}
-          label="Capas"
-        />
-        <TabButton
-          active={tab === "pages"}
-          onClick={() => setTab("pages")}
-          icon={FileText}
-          label="Páginas"
-        />
+      <div className="flex h-10 shrink-0 items-center px-2 py-1">
+        <div className="flex h-8 w-full items-center rounded-[8px] bg-[var(--bg-0)] p-0.5">
+          <TabButton
+            active={tab === "layers"}
+            onClick={() => setTab("layers")}
+            icon={Layers}
+            label="Capas"
+          />
+          <TabButton
+            active={tab === "pages"}
+            onClick={() => setTab("pages")}
+            icon={FileText}
+            label="Páginas"
+          />
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -103,10 +105,10 @@ function TabButton({
     <button
       type="button"
       onClick={onClick}
-      className={`flex flex-1 items-center justify-center gap-1 rounded-[6px] px-2 py-1 font-mono text-[length:var(--fs-0)] tracking-wide uppercase transition-colors duration-120 ${
+      className={`flex h-full flex-1 items-center justify-center gap-1 rounded-[6px] px-2 font-mono text-[length:var(--fs-0)] tracking-wide uppercase transition-colors duration-120 ${
         active
-          ? "bg-[var(--bg-2)] text-[var(--text-0)]"
-          : "text-[var(--text-2)] hover:bg-[var(--bg-2)] hover:text-[var(--text-1)]"
+          ? "bg-[var(--bg-3)] text-[var(--text-0)]"
+          : "text-[var(--text-2)] hover:text-[var(--text-1)]"
       }`}
     >
       <Icon size={11} strokeWidth={1.75} />
