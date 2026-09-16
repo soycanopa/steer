@@ -23,12 +23,14 @@ export type {
 } from "./ChatPanel";
 export { QuestionCard } from "./QuestionCard";
 export type { QuestionCardProps } from "./QuestionCard";
-export { CreateProjectDialog } from "./CreateProjectDialog";
-export type { CreateProjectDialogProps } from "./CreateProjectDialog";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export { HomeView } from "./HomeView";
-export type { HomeViewProps, ProjectCardView } from "./HomeView";
+export type { HomeViewProps, RecentProjectView } from "./HomeView";
+export { HomeComposer, normalizeProjectName } from "./HomeComposer";
+export type { HomeComposerProps, HomePermissionPolicy } from "./HomeComposer";
+export { LoadingState } from "./LoadingState";
+export type { LoadingStateProps, LoadingVariant } from "./LoadingState";
 export { InspectorPanel } from "./InspectorPanel";
 export type {
   InspectorPanelProps,

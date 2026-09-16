@@ -4,7 +4,7 @@ import { useStore } from "zustand";
 import {
   AppShell,
   ChatPanel,
-  CreateProjectDialog,
+  HomeComposer,
   HomeView,
   InspectorPanel,
   LayersPanel,
@@ -96,8 +96,10 @@ export default function App() {
   const [layersWidth, setLayersWidth] = useState(240);
   const [workspaceView, setWorkspaceView] = useState<"home" | "project">("home");
   const openProjectTabs = useStore(store, (s) => s.openProjectTabs);
+  const recentProjects = useStore(store, (s) => s.recentProjects);
+  const projectThumbnails = useStore(store, (s) => s.projectThumbnails);
+  const recentPreviewUrls = useStore(store, (s) => s.recentPreviewUrls);
   const createProgress = useStore(store, (s) => s.createProgress);
-  const [createDialogOpen, setCreateDialogOpen] = useState(false);
   const [createParentDir, setCreateParentDir] = useState<string | null>(null);
   const userChoseHomeRef = useRef(false);
   const projectCreating = projectStatus === "creating";
@@ -192,23 +194,20 @@ export default function App() {
     setWorkspaceView("project");
   }
 
-  function beginCreateProject() {
-    setCreateParentDir(null);
-    setCreateDialogOpen(true);
-  }
-
   async function pickCreateParentDir() {
     const path = await pickDirectory("Carpeta donde crear el proyecto");
     if (path) setCreateParentDir(path);
   }
 
-  async function submitCreateProject(name: string) {
+  async function submitCreateProject(name: string, prompt: string) {
     if (createParentDir == null) return;
     userChoseHomeRef.current = false;
     await store.getState().createStartProject(createParentDir, name);
     if (store.getState().projectStatus !== "open") return;
-    setCreateDialogOpen(false);
     setCreateParentDir(null);
+    // El prompt del home queda listo como primer mensaje del proyecto.
+    store.getState().setDraftNote(prompt);
+    store.getState().toggleChat(true);
     setWorkspaceView("project");
   }
 
@@ -232,6 +231,13 @@ export default function App() {
       setWorkspaceView("project");
     }
   }, [projectStatus, projectMeta?.root]);
+
+  // Home visible: refrescar las URLs live de los recientes (previews).
+  useEffect(() => {
+    if (workspaceView === "home") {
+      void store.getState().refreshRecentPreviewUrls();
+    }
+  }, [workspaceView]);
 
   // UX.md §7: ⌘O abre · ⌘Z undo local · ⌘Enter aplica · I Inspect ·
   // C comentarios · V interactuar · Esc deselecciona.
@@ -326,15 +332,15 @@ export default function App() {
     active: projectMeta?.root === path && workspaceView === "project",
   }));
 
-  const projectCards = openProjectTabs.map((path) => ({
+  const recents = recentProjects.map((path) => ({
     path,
-    name: lastFolderName(path),
+    name: projectMeta?.root === path ? projectMeta.name : lastFolderName(path),
     active: projectMeta?.root === path,
+    // El activo ya tiene su preview vivo (oculto en el home): su card usa
+    // thumbnail para no duplicar la carga.
     previewUrl:
-      projectMeta?.root === path && previewUrl != null
-        ? joinPreviewPageUrl(previewUrl, previewPath)
-        : null,
-    previewLive: projectMeta?.root === path && previewStatus === "live",
+      projectMeta?.root === path ? null : (recentPreviewUrls[path] ?? null),
+    thumbnail: projectThumbnails[path] ?? null,
   }));
 
   return (
@@ -362,20 +368,6 @@ export default function App() {
       queueCount={queue.length}
     >
       <DebugDrawer open={debugOpen} />
-      <CreateProjectDialog
-        open={createDialogOpen}
-        parentDir={createParentDir}
-        creating={projectCreating}
-        progress={createProgress}
-        error={projectCreating ? null : projectError}
-        onClose={() => {
-          if (projectCreating) return;
-          setCreateDialogOpen(false);
-          setCreateParentDir(null);
-        }}
-        onPickParentDir={() => void pickCreateParentDir()}
-        onSubmit={(name) => void submitCreateProject(name)}
-      />
       {showProjectWorkspace ? (
         <PreviewFrame
               url={previewFrameUrl}
@@ -497,13 +489,41 @@ export default function App() {
             />
       ) : (
         <HomeView
-          projects={projectCards}
+          recents={recents}
           opening={projectStatus === "opening"}
-          creating={projectCreating}
           error={projectError}
           onOpenProject={() => void openViaDialog()}
-          onCreateProject={beginCreateProject}
           onSelectProject={(path) => void selectProject(path)}
+          onDeleteProject={(path) => void store.getState().deleteProject(path)}
+          composer={
+            <HomeComposer
+              creating={projectCreating}
+              progress={createProgress}
+              error={projectCreating ? null : projectError}
+              parentDir={createParentDir}
+              onPickParentDir={() => void pickCreateParentDir()}
+              onSubmit={(name, prompt) => void submitCreateProject(name, prompt)}
+              agentTabs={agentTabs}
+              providerGroups={providerGroups}
+              selectedModelKey={selectedModelKey}
+              reasoningEffort={reasoningEffort}
+              showModelReasoning={showModelReasoning}
+              agentOnline={agentUiStatus === "live"}
+              onSelectModel={(key) => {
+                const m = agentModels.find(
+                  (mod) => `${mod.providerId}/${mod.modelId}` === key,
+                );
+                if (m) store.getState().setModel(m);
+              }}
+              onSetReasoningEffort={(effort) =>
+                store.getState().setReasoningEffort(effort)
+              }
+              permissionPolicy={permissionPolicy}
+              onSetPermissionPolicy={(policy) =>
+                store.getState().setPermissionPolicy(policy)
+              }
+            />
+          }
         />
       )}
     </AppShell>
