@@ -75,8 +75,21 @@ fn save_state(state: &PersistedState) {
     }
 }
 
+fn url_key(url: &str) -> String {
+    crate::process::normalize_upstream_url(url)
+}
+
+fn persist_owns_project(project: &str, entry: &PersistedDev) -> bool {
+    let root = Path::new(project);
+    process::pid_alive(entry.pgid) && process::process_owns_dir(entry.pgid, root)
+}
+
 fn upsert_state(path: &str, url: &str, pgid: i32) {
     let mut state = read_state();
+    let key = url_key(url);
+    state.servers.retain(|p, entry| {
+        p == path || url_key(&entry.url) != key
+    });
     state.servers.insert(
         path.to_string(),
         PersistedDev {
@@ -146,11 +159,15 @@ pub async fn project_dev_start(
                 Some(entry) => entry,
                 None => continue,
             };
-            if crate::upstream_probe::resolve(&entry.url).await.is_some() {
-                continue; // sigue vivo: se respeta
+            if persist_owns_project(&other, &entry)
+                && crate::upstream_probe::resolve(&entry.url).await.is_some()
+            {
+                continue; // sigue vivo y es de ESE proyecto
             }
             persisted.servers.remove(&other);
-            process::kill_pgid(entry.pgid);
+            if persist_owns_project(&other, &entry) {
+                process::kill_pgid(entry.pgid);
+            }
             changed = true;
         }
         if changed {
@@ -159,13 +176,15 @@ pub async fn project_dev_start(
     }
     // Reusar el server persistido de ESTE path si sigue vivo.
     if let Some(entry) = persisted.servers.get(&path).cloned() {
-        if let Some(url) = crate::upstream_probe::resolve(&entry.url).await {
-            return Ok(DevStartInfo {
-                url,
-                spawned: false,
-            });
+        if persist_owns_project(&path, &entry) {
+            if let Some(url) = crate::upstream_probe::resolve(&entry.url).await {
+                return Ok(DevStartInfo {
+                    url,
+                    spawned: false,
+                });
+            }
+            process::kill_pgid(entry.pgid);
         }
-        process::kill_pgid(entry.pgid);
         persisted.servers.remove(&path);
         save_state(&persisted);
     }
@@ -249,9 +268,11 @@ pub async fn project_preview_url(
             return Ok(Some(ready));
         }
     }
-    if let Some(entry) = read_state().servers.get(&path) {
-        if let Some(ready) = crate::upstream_probe::resolve(&entry.url).await {
-            return Ok(Some(ready));
+    if let Some(entry) = read_state().servers.get(&path).cloned() {
+        if persist_owns_project(&path, &entry) {
+            if let Some(ready) = crate::upstream_probe::resolve(&entry.url).await {
+                return Ok(Some(ready));
+            }
         }
     }
     Ok(None)
@@ -275,7 +296,9 @@ pub fn project_dev_stop(path: String, state: tauri::State<'_, DevServerMap>) {
     if !killed_tree {
         let persisted = read_state();
         if let Some(entry) = persisted.servers.get(&path) {
-            process::kill_pgid(entry.pgid);
+            if persist_owns_project(&path, entry) {
+                process::kill_pgid(entry.pgid);
+            }
         }
     }
     remove_state(&path);
@@ -366,5 +389,13 @@ mod tests {
     fn port_of_url() {
         assert_eq!(port_of("http://localhost:3000"), 3000);
         assert_eq!(port_of("http://localhost"), 0);
+    }
+
+    #[test]
+    fn url_key_unifica_localhost_y_loopback() {
+        assert_eq!(
+            url_key("http://localhost:3000/"),
+            url_key("http://127.0.0.1:3000")
+        );
     }
 }
