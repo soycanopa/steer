@@ -35,7 +35,7 @@ Steer nunca es source of truth del diseño. OpenCode es el primer adapter, no el
 | Pantallas, sliders, chat | `packages/ui` | domain tipos, callbacks |
 | Protocolo iframe | `packages/preview-bridge` | domain Selection |
 | OpenCode HTTP+SSE | `packages/agent-opencode` | ports + domain |
-| Futuro Claude / Grok / ACP | `packages/agent-*` | ports + domain |
+| Cursor / Grok / Antigravity / futuro Claude / ACP | `packages/agent-*` | ports + domain |
 | Wiring | `apps/desktop/src/composition.ts` | todos los adapters |
 | Spawn / proxy / dialog | `apps/desktop/src-tauri` | — |
 

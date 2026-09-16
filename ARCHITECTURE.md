@@ -13,7 +13,7 @@ Respuesta: **no el producto. Tauri/Rust es el host OS.** El producto vive en Typ
 | `packages/domain` | TypeScript puro | Intent, Selection, cola, serializer de prompt, reglas | React, Tauri, fetch, Node fs |
 | `packages/ports` | TypeScript puro | Interfaces `AgentPort`, `ProjectPort`, `PreviewPort`, `ProcessPort` | Implementaciones |
 | `packages/agent-opencode` | TypeScript | Habla HTTP+SSE con `opencode serve` | UI, Zustand, Tauri |
-| `packages/agent-*` (futuro) | TypeScript | Claude Code, Grok Build, ACP genérico, Cursor CLI | UI |
+| `packages/agent-*` (futuro) | TypeScript | Cursor SDK local, Grok Build, Claude Code, ACP | UI |
 | `packages/preview-bridge` | TS + `bridge.js` | Protocolo `steer:*`, parser `data-tsd-source` | Agentes |
 | `packages/ui` | React + TS | Componentes tontos + tokens | Stores, adapters, Tauri |
 | `packages/app-state` | Zustand (o equivalente) | Orquesta puertos. Único lugar que importa ports *y* los llama | JSX de pantallas, fetch a OpenCode |
@@ -40,8 +40,9 @@ UI → app-state → ports ← adapters ← host Rust.
            ▲           ▲              ▲
            │           │              │
     agent-opencode  tauri-project  preview-bridge
-    agent-claude*   node-project*  (iframe)
-    agent-grok*
+    agent-cursor
+    agent-grok
+    agent-claude*
     agent-acp*
            │
            ▼
@@ -78,6 +79,9 @@ Matriz. Una X es un error de arquitectura.
 | ui | solo tipos de lectura | no | — | no | no | no | no |
 | app-state | sí | sí | no | — | no (solo el port) | tipos protocol | no |
 | agent-opencode | sí | sí | no | no | — | no | no |
+| agent-cursor | sí | sí | no | no | — | no | no |
+| agent-grok | sí | sí | no | no | — | no | no |
+| agent-antigravity | sí | sí | no | no | — | no | no |
 | preview-bridge | sí (Selection) | sí | no | no | no | — | no |
 | apps/desktop React | no directo | no | sí | sí | factory | no | wrappers finos |
 | apps/desktop Rust | no | no | no | no | no | sirve bridge.js | — |
@@ -91,7 +95,7 @@ Estos tipos viven en `packages/ports`. Los adapters los implementan. La UI nunca
 ```ts
 // packages/ports/src/agent.ts
 
-export type ProviderId = string; // "opencode" | "claude-code" | "grok-build" | "acp:<name>"
+export type ProviderId = string; // "opencode" | "cursor" | "grok-build" | "claude-code" | "acp:<name>"
 export type SessionId = string;
 
 export type ModelRef = {
@@ -182,12 +186,12 @@ Checklist. Si un paso toca `packages/ui` más allá del `ModelPopover` genérico
 ```ts
 const agents: AgentPort[] = [
   createOpencodeAgent({ baseUrl: "http://127.0.0.1:4096" }),
-  // createClaudeCodeAgent({ ... }),
+  // createCursorAgent({ baseUrl: "http://127.0.0.1:4106" }),
   // createGrokBuildAgent({ ... }),
 ];
 ```
 
-3. `app-state` elige `AgentPort` por `providerId`. El chat no cambia.
+3. `app-state` elige `AgentPort` por `adapterId`. El chat no cambia. Mismo adapter reutiliza `sessionId`; otro adapter abre sesión nueva (`sessionId` null).
 4. `serialize-prompt` sigue en `domain`. El adapter puede *envolver* el texto (system propio) pero no redefinir Intent.
 5. Si el CLI no tiene HTTP: el adapter encapsula el transporte (incluido stdio **dentro del adapter**, nunca en React). El puerto sigue siendo async iterable de `AgentEvent`.
 6. Tests del adapter con server fake. Cero UI.
@@ -197,10 +201,12 @@ Providers previstos, en orden, sin implementarlos ahora:
 | Orden | Provider | Transporte probable |
 | --- | --- | --- |
 | P0 | OpenCode | `opencode serve` HTTP+SSE |
+| P1 | Cursor | sidecar Node `@cursor/sdk` local + HTTP desde el adapter |
 | P1 | Grok Build | HTTP / ACP / stdio encapsulado |
-| P1 | Claude Code | CLI o SDK, encapsulado |
+| P1 | Antigravity | sidecar Node + `agy` headless stream-json |
+| P1 | Claude Code | pendiente (sin cuenta para probar) |
 | P2 | ACP genérico | un adapter `agent-acp` parametrizado |
-| P2 | Codex / Gemini CLI | si hablan HTTP o ACP |
+| P2 | Codex | pendiente |
 
 No hay “provider SDK de Steer” cloud. Son procesos locales del usuario.
 
@@ -237,7 +243,10 @@ steer/
 │   ├── app-state/
 │   ├── ui/
 │   ├── preview-bridge/
-│   └── agent-opencode/
+│   ├── agent-opencode/
+│   ├── agent-cursor/
+│   ├── agent-grok/
+│   └── agent-antigravity/
 ├── apps/
 │   └── desktop/             # Tauri + Vite renderer
 │       ├── src/             # composition.ts, main.tsx
@@ -298,6 +307,9 @@ Ese flujo no se reescribe por provider.
 | domain | parser source-loc, reducer de cola, snapshot del prompt |
 | ports | no hay runtime; son tipos |
 | agent-opencode | mock HTTP/SSE → AgentEvent |
+| agent-cursor | mock HTTP/SSE → AgentEvent |
+| agent-grok | mock HTTP/SSE → AgentEvent |
+| agent-antigravity | mock HTTP/SSE → AgentEvent |
 | preview-bridge | parse attr, build Selection |
 | app-state | apply + mock AgentPort, asserts clearOverrides |
 | ui | opcional; no bloquea P0 |

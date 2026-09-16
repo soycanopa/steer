@@ -25,7 +25,7 @@ Workspaces:
 
 ```
 packages/*:
-  domain, ports, app-state, ui, preview-bridge, agent-opencode
+  domain, ports, app-state, ui, preview-bridge, agent-opencode, agent-cursor, agent-grok
 apps/*:
   desktop
 ```
@@ -201,6 +201,8 @@ Marcar en el PR / commits, un tema por commit.
 - [ ] Tweak rows P0 + pins + cola domain
 - [ ] Chat transcript UI (genérico, sin logo OpenCode)
 - [ ] `@steer/agent-opencode` health / models / startTurn / abort
+- [ ] `@steer/agent-cursor` health / models / startTurn / abort (sidecar fake)
+- [ ] `@steer/agent-grok` health / models / startTurn / abort (sidecar fake)
 - [ ] Registrar adapter en `composition.ts`
 - [ ] Apply → AgentPort → clear overrides on done
 - [ ] Model popover lee `listModels()` + `capabilities`

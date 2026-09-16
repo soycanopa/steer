@@ -45,6 +45,9 @@ Steer prueba `4096` y cae a `4097` / `4098` / `4095`.
 | `packages/ui` | Chrome, inspector, chat (copy en español) |
 | `packages/preview-bridge` | Protocolo `steer:*` en el iframe |
 | `packages/agent-opencode` | Adapter HTTP + SSE a `opencode serve` |
+| `packages/agent-cursor` | Adapter HTTP + SSE al sidecar `@cursor/sdk` local |
+| `packages/agent-grok` | Adapter HTTP + SSE al sidecar `grok agent stdio` |
+| `packages/agent-antigravity` | Adapter HTTP + SSE al sidecar `agy` headless |
 | `apps/desktop` | Host Tauri: fs, spawn, proxy, diálogo |
 
 Un provider nuevo = `packages/agent-<id>` + una línea en `apps/desktop/src/composition.ts`. La UI no importa adapters.

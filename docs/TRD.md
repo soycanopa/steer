@@ -19,7 +19,7 @@ Steer **no se desarrolla “en Rust”**. Se desarrolla en paquetes TypeScript. 
 | Domain | `packages/domain` TS puro | Intent, cola, serializer |
 | Contratos | `packages/ports` | `AgentPort`, `ProjectPort`, `PreviewPort` |
 | Agente P0 | `packages/agent-opencode` | `opencode serve` :4096 HTTP+SSE |
-| Agentes P1+ | `packages/agent-*` | Mismo `AgentPort`. UI no cambia |
+| Agentes P1+ | `packages/agent-*` | Cursor, Grok, Claude. Mismo `AgentPort`. UI no cambia |
 | Preview | `packages/preview-bridge` | `steer:*` + overlay |
 | Proyecto objetivo | TanStack Start | `data-tsd-source` vía Devtools Vite |
 | Persistencia | prefs vía host | last path, providerId, modelRef |
@@ -298,6 +298,36 @@ Endpoints que **solo este adapter** conoce:
 
 Lista de modelos: siempre `GET /config/providers` mapeado a `ModelRef[]`. Nunca hardcodear. El chat solo ve `AgentPort.listModels()`.
 
+## 8.1 Adapter Cursor (`packages/agent-cursor`)
+
+Implementa el mismo `AgentPort`. El SDK `@cursor/sdk` es Node (runtime local contra `cwd` del proyecto abierto). El webview Tauri no lo carga: el host spawnea `packages/agent-cursor/src/serve.mjs` y el adapter habla HTTP+SSE con ese sidecar.
+
+- Runtime: **local** (`local.cwd` = `TurnRequest.directory`). Cloud Agents clonan un repo en una VM; eso no escribe el proyecto abierto.
+- Modelos: `Cursor.models.list()` vía `GET /v1/models`. Nunca hardcodear ids.
+- Auth: `CURSOR_API_KEY` si existe; si no, `Cursor.auth.status()` / `Cursor.auth.login()` (store en `~/.cursor/sdk/auth.json`). **No** lee la sesión de Cursor.app: el SDK no comparte ese login. Si la app está instalada y Steer no está autorizado, el sidecar abre el navegador una vez.
+- `adapterId` del `ModelRef` = `"cursor"`. `app-state` elige el `AgentPort` por `adapterId`.
+- Knobs del catálogo (`fast`, `optimize_for`, …) van en `capabilities.params` y en `extras.params`. No se fingen como reasoning OpenCode.
+
+## 8.2 Adapter Grok Build (`packages/agent-grok`)
+
+Implementa el mismo `AgentPort`. El CLI `grok` habla ACP por stdio (`grok agent stdio`); el webview Tauri no lo carga. El host spawnea `packages/agent-grok/src/serve.mjs` y el adapter habla HTTP+SSE con ese sidecar.
+
+- Runtime: **local** (`--cwd` / ACP `session/new` = `TurnRequest.directory`).
+- Modelos: stdout de `grok models` vía `GET /v1/models`. Nunca hardcodear ids.
+- Auth: `XAI_API_KEY` si existe; si no, la sesión de `grok login`. **No** lee tokens de Grok Bot.app.
+- `adapterId` del `ModelRef` = `"grok"`. `app-state` elige el `AgentPort` por `adapterId`.
+- Effort del CLI (`--effort`) se mapea desde `extras.reasoning.effort` (`low` / `high` / `max`).
+
+## 8.3 Adapter Antigravity (`packages/agent-antigravity`)
+
+Implementa el mismo `AgentPort`. El CLI `agy` habla headless NDJSON (`--input-format stream-json` / `--output-format stream-json`). El host spawnea `packages/agent-antigravity/src/serve.mjs` y el adapter habla HTTP+SSE.
+
+- Runtime: **local** (`cwd` = `TurnRequest.directory`).
+- Modelos: stdout de `agy models`. Nunca hardcodear ids.
+- Auth: sesión de `agy` / token CLI, o `GEMINI_API_KEY`. **No** lee el keyring de Antigravity.app.
+- `adapterId` = `"antigravity"`. El effort va en el id del modelo (`-high` / `-medium` / Thinking); el picker no muestra Reasoning.
+- Claude Code y Codex quedan pendientes.
+
 ## 9. Commands Tauri (P0)
 
 ```
@@ -309,6 +339,9 @@ project_preview_url     { path } -> string | null   // home: URL viva sin spawne
 window_snapshot         { x, y, width, height } -> { dataUrl }  // thumbnail nativo
 project_read_package    { path } -> PackageJson
 opencode_ensure         { directory } -> { baseUrl, version }
+cursor_ensure           {} -> { baseUrl, version, spawned }
+grok_ensure             {} -> { baseUrl, version, spawned }
+antigravity_ensure      {} -> { baseUrl, version, spawned }
 proxy_start             { upstreamUrl } -> { proxyUrl }
 proxy_stop              {}
 ```
@@ -336,7 +369,7 @@ Slices. Hablan con puertos, no con OpenCode ni con Tauri directo.
 - `project` → `ProjectPort`
 - `preview` → `PreviewPort`
 - `intents` → funciones puras de `domain`
-- `agent` → `AgentPort` seleccionado por `providerId` (sessionId, model, extras, transcript)
+- `agent` → `AgentPort` seleccionado por `adapterId` (sessionId, model, extras, transcript). Mismo adapter reutiliza `sessionId`; otro adapter = sesión nueva.
 - `prefs`: lastProject, lastProviderId, lastModelRef
 
 Composition root inyecta los ports. No React Context para esto.

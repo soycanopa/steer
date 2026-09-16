@@ -147,7 +147,7 @@ Popover en el header del chat:
 - Reasoning: Off / Low / Medium / High
 - Hint si `supportsReasoning === false`
 
-Cambiar modelo no reinicia sesión en P0 (OpenCode acepta model per message). Si falla, mensaje “este turno usó el default del server”.
+Cambiar modelo **dentro del mismo AgentPort** no reinicia sesión (el adapter acepta model per message). Cambiar de proveedor abre una conversación local nueva; el próximo turno manda `sessionId` null. Si falla, mensaje “este turno usó el default del server”.
 
 ### 5.9 Perder el preview
 

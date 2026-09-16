@@ -23,7 +23,7 @@ El preview *es* la app. La UI nunca persiste source. Cada gesto se serializa com
 
 No es “un app Rust”. Es un monorepo TypeScript con un host Tauri delgado.
 
-- **Producto:** packages TS (`domain`, `ports`, `app-state`, `ui`, `agent-opencode`, `preview-bridge`)
+- **Producto:** packages TS (`domain`, `ports`, `app-state`, `ui`, `agent-opencode`, `agent-cursor`, `agent-grok`, `preview-bridge`)
 - **Host OS:** Tauri 2 / Rust — ventana, fs, spawn, proxy. Cero Intents en Rust
 - **UI:** React + Tailwind v4 en `packages/ui` (no habla con providers)
 - **Estado:** Zustand en `packages/app-state` (única orquestación)
