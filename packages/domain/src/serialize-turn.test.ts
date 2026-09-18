@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { ApplyPayload } from "./intent";
-import { serializeTurn } from "./serialize-turn";
+import { serializeTurn, TURN_GUIDELINES } from "./serialize-turn";
 
 const payload: ApplyPayload = {
   projectRoot: "/tmp/proj",
@@ -65,5 +65,21 @@ describe("serializeTurn", () => {
     const a = serializeTurn(payload);
     const b = serializeTurn(payload);
     expect(a).toBe(b);
+  });
+});
+
+describe("TURN_GUIDELINES", () => {
+  it("pide tareas vivas, markdown corto, reporte por partes y conservar la inspección", () => {
+    expect(TURN_GUIDELINES).toContain("mantenla viva");
+    expect(TURN_GUIDELINES).toContain("in_progress");
+    expect(TURN_GUIDELINES).toContain("markdown");
+    expect(TURN_GUIDELINES).toContain("Nunca un solo bloque");
+    expect(TURN_GUIDELINES).toContain("mensaje breve");
+    expect(TURN_GUIDELINES).toContain("devtools-vite");
+    expect(TURN_GUIDELINES).toContain("{...props}");
+  });
+
+  it("es determinista", () => {
+    expect(TURN_GUIDELINES).toBe(TURN_GUIDELINES);
   });
 });

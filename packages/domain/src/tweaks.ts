@@ -198,6 +198,9 @@ export function computedMatchesTweak(
   const b = to.trim();
   if (a === "" || b === "") return false;
   if (a === b) return true;
+  if (prop === "text") {
+    return a.replace(/\s+/g, " ") === b.replace(/\s+/g, " ");
+  }
 
   const hexA = colorToHex(a);
   const hexB = colorToHex(b);

@@ -11,6 +11,15 @@ const REGLAS = `Reglas:
 - No refactorices fuera de los targets.
 - No commitees.`;
 
+/** Pautas que viajan con TODO turno (también los de texto puro, sin
+ * intents). Determinista por construcción: los adapters no la reescriben
+ * ni la vuelven vaga (AGENTS.md). */
+export const TURN_GUIDELINES = `Pautas del turno:
+- Si creas una lista de tareas (todo), mantenla viva: márcala in_progress al empezar cada una y completed apenas termines. No la dejes congelada.
+- Responde en markdown legible: párrafos de 2–4 líneas, listas para enumerar, negrita para lo clave. Nunca un solo bloque de texto largo.
+- Reporta por pasos: tras cada herramienta relevante, envía un mensaje breve con el resultado antes de seguir con la siguiente.
+- Conserva la inspección de Steer: no quites @tanstack/devtools-vite ni devtools() del vite config, y evita spread {...props} en elementos JSX (rompe data-tsd-source y el panel de capas).`;
+
 export function serializeTurn(payload: ApplyPayload): string {
   const resumen = payload.intents
     .map((i) => {

@@ -14,7 +14,7 @@ export type Selection = {
   component: string | null; // nombre React si se puede inferir
   route: string | null; // pathname Start
   tag: string; // h1, button, section
-  textPreview: string; // max 80 chars
+  textPreview: string; // copy visible del nodo (cap 4k en el bridge)
   computed: Record<string, string>;
   breadcrumb: string[]; // ["Hero", "h1"]
 };
@@ -41,7 +41,8 @@ export type TweakProp =
   | "fontStyle"
   | "textDecoration"
   | "borderRadius"
-  | "opacity";
+  | "opacity"
+  | "text";
 
 export type Intent =
   | {

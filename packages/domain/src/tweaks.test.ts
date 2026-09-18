@@ -19,4 +19,11 @@ describe("computedMatchesTweak", () => {
     expect(computedMatchesTweak("textAlign", "start", "left")).toBe(true);
     expect(computedMatchesTweak("textAlign", "center", "left")).toBe(false);
   });
+
+  it("compara copy de text por whitespace", () => {
+    expect(
+      computedMatchesTweak("text", "Hola  mundo", "Hola mundo"),
+    ).toBe(true);
+    expect(computedMatchesTweak("text", "Hola", "Chau")).toBe(false);
+  });
 });

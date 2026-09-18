@@ -1,7 +1,8 @@
 import type { Scope, SourceLoc, TweakProp } from "./intent";
 
 // Override efímero que el bridge aplica en el iframe (TRD §6.2).
-// Vive en un único <style data-steer-overlay>; nunca toca disco.
+// CSS vive en un único <style data-steer-overlay>. `prop: "text"` no es CSS:
+// el bridge escribe textContent y lo restaura al reset/clear. Nunca toca disco.
 //
 // Selector que construye el bridge (Fase D):
 //  - scope "instance"  → [data-steer-id="<steerId>"]
