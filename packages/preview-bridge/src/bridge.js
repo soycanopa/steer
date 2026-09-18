@@ -39,6 +39,18 @@
   var ACCENT = "#2b6bff"; // azul tipo Webflow, distinto del brand del proyecto (UX §9)
   var COMMENT_LINE = "#ff4d4d"; // outline delgado del modo comentarios
 
+  // Copy visible del overlay (es-US). Un solo lugar para futuros locales.
+  var STRINGS = {
+    editPin: "Edit #",
+    commentPin: "Comment #",
+    commentPlaceholder: "Comment for the agent…",
+    cancel: "Cancel",
+    save: "Save",
+    captureBlocked:
+      "The preview includes cross-origin content without CORS that blocks the capture.",
+    cropHint: "Drag to crop · click = full screen · Esc cancels",
+  };
+
   var inspect = false;
   var commentMode = false;
   var selectedEl = null;
@@ -52,6 +64,7 @@
   var paddingBox = null;
   var inspectStyle = null;
   var styleEl = null;
+  var textTouched = [];
   var lastMove = 0;
 
   function send(msg) {
@@ -293,7 +306,7 @@
       component: component,
       route: location.pathname,
       tag: tag,
-      textPreview: (el.textContent || "").trim().slice(0, 80),
+      textPreview: (el.textContent || "").trim().slice(0, 4000),
       computed: props,
       breadcrumb: breadcrumb,
     };
@@ -822,8 +835,7 @@
       } catch (_taint) {
         send({
           type: "steer:capture-error",
-          message:
-            "El preview incluye contenido de otro origen sin CORS que bloquea la captura.",
+          message: STRINGS.captureBlocked,
         });
         return;
       }
@@ -939,8 +951,7 @@
       "user-select:none;-webkit-user-select:none;";
     var hint = document.createElement("div");
     hint.setAttribute("data-steer-overlay", "");
-    hint.textContent =
-      "Arrastra para recortar · click = pantalla completa · Esc cancela";
+    hint.textContent = STRINGS.cropHint;
     hint.style.cssText =
       "position:absolute;top:12px;left:50%;transform:translateX(-50%);" +
       "font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;color:#fff;" +
@@ -1072,11 +1083,13 @@
       css += selector + "{";
       var rules = byId[id];
       for (var j = 0; j < rules.length; j++) {
+        if (rules[j].prop === "text") continue;
         css += cssProp(rules[j].prop) + ":" + rules[j].value + " !important;";
       }
       css += "}";
     }
     styleEl.textContent = css;
+    applyTextOverrides(overrides);
     // Edición de espaciado en vivo: mostrar las capas del seleccionado y
     // enfatizar el anillo que se está editando (margin ámbar / padding
     // celeste), aunque el mouse esté en el panel.
@@ -1091,6 +1104,58 @@
       if (editing.padding) emphasizeSpacing("padding");
     }
     schedulePosition(); // el layout pudo cambiar: seguir al elemento
+  }
+
+  function restoreTextOverrides() {
+    for (var i = 0; i < textTouched.length; i++) {
+      var el = textTouched[i];
+      if (el && el.__steerTextOrig != null) {
+        if (el.isConnected) el.textContent = el.__steerTextOrig;
+        try {
+          delete el.__steerTextOrig;
+        } catch (_) {
+          el.__steerTextOrig = undefined;
+        }
+      }
+    }
+    textTouched = [];
+  }
+
+  function textTargets(o) {
+    if (
+      o.scope === "component" &&
+      o.source &&
+      o.source.file
+    ) {
+      return document.querySelectorAll(
+        '[data-tsd-source="' +
+          o.source.file +
+          ":" +
+          o.source.line +
+          ":" +
+          o.source.col +
+          '"]',
+      );
+    }
+    var el = pinTarget(o.steerId);
+    return el ? [el] : [];
+  }
+
+  function applyTextOverrides(overrides) {
+    restoreTextOverrides();
+    if (!Array.isArray(overrides)) return;
+    for (var i = 0; i < overrides.length; i++) {
+      var o = overrides[i];
+      if (!o || o.prop !== "text" || o.value == null) continue;
+      var els = textTargets(o);
+      for (var j = 0; j < els.length; j++) {
+        var el = els[j];
+        if (!el) continue;
+        if (el.__steerTextOrig == null) el.__steerTextOrig = el.textContent;
+        textTouched.push(el);
+        el.textContent = o.value;
+      }
+    }
   }
 
   function emphasizeSpacing(prop) {
@@ -1109,6 +1174,7 @@
 
   function clearOverrides() {
     if (styleEl) styleEl.textContent = "";
+    restoreTextOverrides();
     schedulePosition();
   }
 
@@ -1177,7 +1243,9 @@
     badge.setAttribute("data-steer-pin", intentId);
     badge.setAttribute(
       "aria-label",
-      pinKind === "edit" ? "Edición #" + number : "Comentario #" + number,
+      pinKind === "edit"
+        ? STRINGS.editPin + number
+        : STRINGS.commentPin + number,
     );
     badge.textContent = String(number);
     badge.style.cssText =
@@ -1239,7 +1307,7 @@
       "border-radius:10px;padding:8px;box-shadow:0 8px 24px #0e0f1188;" +
       "font:12.5px/1.4 system-ui,sans-serif;display:none;";
     var ta = document.createElement("textarea");
-    ta.placeholder = "Comentario para el agente…";
+    ta.placeholder = STRINGS.commentPlaceholder;
     ta.rows = 3;
     ta.style.cssText =
       "width:100%;box-sizing:border-box;resize:vertical;border:0;" +
@@ -1249,13 +1317,13 @@
     row.style.cssText = "display:flex;gap:6px;margin-top:6px;justify-content:flex-end;";
     var cancel = document.createElement("button");
     cancel.type = "button";
-    cancel.textContent = "Cancelar";
+    cancel.textContent = STRINGS.cancel;
     cancel.style.cssText =
       "border:0;background:#272b33;color:#c4c8d0;border-radius:6px;" +
       "padding:4px 10px;font:12px system-ui,sans-serif;cursor:pointer;";
     var save = document.createElement("button");
     save.type = "button";
-    save.textContent = "Guardar";
+    save.textContent = STRINGS.save;
     save.style.cssText =
       "border:0;background:#5b8cff;color:#fff;border-radius:6px;" +
       "padding:4px 10px;font:12px system-ui,sans-serif;cursor:pointer;";
