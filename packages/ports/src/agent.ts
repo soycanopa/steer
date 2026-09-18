@@ -1,7 +1,7 @@
 // AgentPort — ARCHITECTURE §4. Contrato estable; los adapters lo implementan.
 // La UI nunca lo implementa. Un provider nuevo = un package @steer/agent-<id>.
 
-import type { ApplyPayload } from "@steer/domain";
+import type { AgentTodo, ApplyPayload } from "@steer/domain";
 
 export type ProviderId = string; // "opencode" | "cursor" | "grok-build" | "claude-code" | "acp:<name>"
 export type SessionId = string;
@@ -63,6 +63,9 @@ export type AgentEvent =
       status: "start" | "end";
       detail?: string;
     }
+  /** Snapshot completo de la lista de tareas del agente (todo.updated,
+   * todowrite…). El adapter ya la normalizó con domain.parseTodos. */
+  | { type: "todo"; todos: AgentTodo[] }
   | { type: "permission"; permissionId: string; summary: string }
   | {
       type: "question";
