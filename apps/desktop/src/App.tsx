@@ -12,6 +12,7 @@ import {
   PreviewFrame,
   ProjectTabStrip,
   groupModelsByProvider,
+  t,
   tweakEditLabel,
 } from "@steer/ui";
 import { joinPreviewPageUrl } from "@steer/app-state";
@@ -199,7 +200,7 @@ export default function App() {
   }
 
   async function pickCreateParentDir() {
-    const path = await pickDirectory("Carpeta donde crear el proyecto");
+    const path = await pickDirectory(t.dialogs.createParentDir);
     if (path) setCreateParentDir(path);
   }
 
@@ -426,9 +427,7 @@ export default function App() {
                 inspectorVisible ? (
                   <InspectorPanel
                     selection={selection}
-                    scope={scope}
                     tweaks={currentTweaks}
-                    onSetScope={(s) => store.getState().setScope(s)}
                     onSetTweak={(prop, to) => store.getState().setTweak(prop, to)}
                     onResetTweak={(prop) => store.getState().resetTweak(prop)}
                     onResetAll={() => store.getState().resetAllTweaks()}
@@ -453,6 +452,7 @@ export default function App() {
                     showModelReasoning={showModelReasoning}
                     permissionPolicy={permissionPolicy}
                     agentSessions={agentSessionItems}
+                    todos={activeSession.todos}
                     agentBusy={agentBusy}
                     agentOnline={agentUiStatus === "live"}
                     onDraftNote={(text) => store.getState().setDraftNote(text)}
