@@ -24,6 +24,9 @@ export type {
 } from "./ChatPanel";
 export { QuestionCard } from "./QuestionCard";
 export type { QuestionCardProps } from "./QuestionCard";
+export { TodoPanel } from "./TodoPanel";
+export { AgentTrace } from "./AgentTrace";
+export type { AgentTraceRow, AgentTraceVariant } from "./AgentTrace";
 export { EmptyState } from "./EmptyState";
 export type { EmptyStateProps } from "./EmptyState";
 export { HomeView } from "./HomeView";
@@ -57,3 +60,5 @@ export type {
 export { SplitPane } from "./SplitPane";
 export { Statusbar } from "./Statusbar";
 export type { StatusbarMode, StatusbarProps } from "./Statusbar";
+export { setLocale, getLocale, t } from "./i18n";
+export type { Dictionary, Locale } from "./i18n";

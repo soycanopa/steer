@@ -7,6 +7,7 @@ import { OpencodeIcon } from "./icons/OpencodeIcon";
 import { CursorIcon } from "./icons/CursorIcon";
 import { GrokIcon } from "./icons/GrokIcon";
 import { AntigravityIcon } from "./icons/AntigravityIcon";
+import { t } from "./i18n";
 
 type PopoverLayout = {
   left: number;
@@ -63,9 +64,9 @@ export type ReasoningEffortUi = "low" | "high" | "max";
 const ALL_EFFORTS: ReasoningEffortUi[] = ["low", "high", "max"];
 
 const EFFORT_LABELS: Record<ReasoningEffortUi, string> = {
-  low: "Bajo",
-  high: "Alto",
-  max: "Máx",
+  low: t.modelSelector.effortLow,
+  high: t.modelSelector.effortHigh,
+  max: t.modelSelector.effortMax,
 };
 
 export type ModelSelectorProps = {
@@ -171,10 +172,10 @@ export function ModelSelector({
 
   const selectedLabel = useMemo(() => {
     if (selectedModelKey == null) {
-      return agentOnline ? "Modelo" : "Agente off";
+      return agentOnline ? t.modelSelector.model : t.modelSelector.agentOff;
     }
     const m = findModel(providerGroups, selectedModelKey);
-    if (m == null) return "Modelo";
+    if (m == null) return t.modelSelector.model;
     const name =
       m.label.length > 14 ? `${m.label.slice(0, 12)}…` : m.label;
     if (m.reasoning && m.adapterId !== "antigravity") {
@@ -240,7 +241,7 @@ export function ModelSelector({
           >
             <div
               role="dialog"
-              aria-label="Selector de modelo"
+              aria-label={t.modelSelector.aria}
               className="fixed z-[201] flex min-h-0 overflow-hidden rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-1)] shadow-xl"
               style={{
                 left: layout.left,
@@ -251,7 +252,7 @@ export function ModelSelector({
               onMouseDown={(e) => e.stopPropagation()}
             >
               {/* Adapter registrado en composition */}
-              <div className="flex w-11 shrink-0 flex-col items-center gap-1 overflow-y-auto border-r border-[var(--line)] bg-[var(--bg-0)] py-2 min-h-0">
+              <div className="flex w-12 shrink-0 flex-col items-center gap-2.5 overflow-y-auto border-r border-[var(--line)] bg-[var(--bg-0)] px-2.5 py-2.5 min-h-0">
                 {agents.map((agent) => {
                   const selected = agent.id === activeAgent?.id;
                   return (
@@ -297,14 +298,14 @@ export function ModelSelector({
                     type="search"
                     value={search}
                     onChange={(e) => setSearch(e.target.value)}
-                    placeholder="Buscar modelo…"
+                    placeholder={t.modelSelector.searchPlaceholder}
                     className="w-full rounded-[var(--radius-s)] bg-[var(--bg-2)] px-2 py-1 text-[length:var(--fs-1)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)]"
                   />
                 </div>
                 <div className="min-h-0 flex-1 overflow-y-auto py-1">
                   {filteredGroups.length === 0 ? (
                     <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
-                      Sin modelos
+                      {t.modelSelector.noModels}
                     </p>
                   ) : (
                     filteredGroups.map((group) => (
@@ -450,7 +451,7 @@ export function ModelSelector({
         }}
         title={
           disabled
-            ? "Ningún agente responde — no hay modelos"
+            ? t.modelSelector.noneAvailable
             : selectedLabel
         }
         className="flex h-6 max-w-[128px] min-w-0 items-center gap-1 rounded-[var(--radius-s)] bg-[var(--bg-3)] px-1.5 font-mono text-[length:var(--fs-0)] text-[var(--text-1)] transition-colors duration-120 enabled:hover:bg-[var(--bg-2)] disabled:opacity-40"

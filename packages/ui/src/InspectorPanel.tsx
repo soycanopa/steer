@@ -22,7 +22,7 @@ import {
   WrapText,
   X,
 } from "lucide-react";
-import type { Scope, Selection, TweakProp } from "@steer/domain";
+import type { Selection, TweakProp } from "@steer/domain";
 import {
   alignFromComputed,
   boxToCss,
@@ -39,6 +39,7 @@ import {
   weightFromComputed,
   weightValue,
 } from "@steer/domain";
+import { t } from "./i18n";
 
 const DEVTOOLS_SNIPPET = `import { devtools } from "@tanstack/devtools-vite";
 
@@ -58,9 +59,7 @@ export type TweakView = {
 
 export type InspectorPanelProps = {
   selection: Selection | null;
-  scope: Scope;
   tweaks: TweakView[];
-  onSetScope(scope: Scope): void;
   onSetTweak(prop: TweakProp, to: string): void;
   onResetTweak(prop: TweakProp): void;
   onResetAll(): void;
@@ -71,9 +70,7 @@ export type InspectorPanelProps = {
 
 export function InspectorPanel({
   selection,
-  scope,
   tweaks,
-  onSetScope,
   onSetTweak,
   onResetTweak,
   onResetAll,
@@ -111,7 +108,7 @@ export function InspectorPanel({
                 {climb ? (
                   <button
                     type="button"
-                    title="Subir al host del componente"
+                    title={t.inspector.climbToHost}
                     onClick={onSelectAncestor}
                     className="truncate hover:text-[var(--text-0)] hover:underline"
                   >
@@ -133,39 +130,31 @@ export function InspectorPanel({
             },
           )}
         </p>
-        <PathRow selection={selection} />
-        <div className="flex justify-end">
-          <Segmented<Scope>
-            value={scope}
-            onChange={onSetScope}
-            options={[
-              { value: "instance", label: "Instancia" },
-              { value: "component", label: "Componente" },
-            ]}
-          />
-        </div>
+        {selection.source.file === "" ? (
+          <MissingSourceBanner />
+        ) : null}
         </div>
         {onClose ? (
           <button
             type="button"
             onClick={onClose}
-            title="Cerrar inspector"
-            className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-2)] transition-colors duration-120 hover:bg-[var(--bg-2)] hover:text-[var(--text-0)]"
+            title={t.inspector.closeInspector}
+            className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-2)] transition-colors duration-120 hover:bg-[var(--inspect-fill)] hover:text-[var(--text-0)]"
           >
             <X size={14} strokeWidth={1.75} aria-hidden />
           </button>
         ) : null}
       </header>
 
-      <Block title="Tamaño">
+      <Block title={t.inspector.size}>
         <SizeField
-          label="Ancho"
+          label={t.inspector.width}
           computed={selection.computed.width}
           current={tweaks.find((t) => t.prop === "width")?.to}
           onSet={(v) => set("width", v)}
         />
         <SizeField
-          label="Alto"
+          label={t.inspector.height}
           computed={selection.computed.height}
           current={tweaks.find((t) => t.prop === "height")?.to}
           onSet={(v) => set("height", v)}
@@ -181,11 +170,11 @@ export function InspectorPanel({
         ) : null}
       </Block>
 
-      <Block title="Layout">
-        <Field label={`Tipo (${flex ? (selection.computed.display?.includes("grid") ? "Grid" : "Flex") : "Default"})`}>
+      <Block title={t.inspector.layout}>
+        <Field label={t.inspector.typeLabel(flex ? (selection.computed.display?.includes("grid") ? "Grid" : "Flex") : t.inspector.displayDefault)}>
           <IconGroup>
             <Ico
-              title="Default"
+              title={t.inspector.displayDefault}
               active={!flex}
               icon={StretchHorizontal}
             />
@@ -199,26 +188,26 @@ export function InspectorPanel({
         </Field>
         {flex ? (
           <>
-            <Field label="Dirección">
+            <Field label={t.inspector.direction}>
               <IconGroup>
                 <Ico
-                  title="Fila"
+                  title={t.inspector.row}
                   active={(val("flexDirection") ?? "row").startsWith("row")}
                   icon={ArrowRight}
                   onClick={() => set("flexDirection", "row")}
                 />
                 <Ico
-                  title="Columna"
+                  title={t.inspector.column}
                   active={(val("flexDirection") ?? "").startsWith("column")}
                   icon={ArrowDown}
                   onClick={() => set("flexDirection", "column")}
                 />
               </IconGroup>
             </Field>
-            <Field label="Wrap">
+            <Field label={t.inspector.wrap}>
               <button
                 type="button"
-                title="Wrap"
+                title={t.inspector.wrap}
                 onClick={() =>
                   set(
                     "flexWrap",
@@ -228,26 +217,25 @@ export function InspectorPanel({
                 className={`flex size-7 items-center justify-center rounded-[6px] ${
                   (val("flexWrap") ?? "nowrap") === "wrap"
                     ? "bg-[var(--accent)] text-white"
-                    : "bg-[var(--bg-3)] text-[var(--text-1)]"
+                    : "bg-[var(--inspect-well)] text-[var(--text-1)]"
                 }`}
               >
                 <WrapText size={13} strokeWidth={1.75} />
               </button>
             </Field>
-            <Field label="Distribuir">
+            <Field label={t.inspector.distribute}>
               <JustifyBar
                 value={val("justifyContent") ?? "flex-start"}
                 onSet={(v) => set("justifyContent", v)}
               />
             </Field>
-            <Field label="Alinear">
+            <Field label={t.inspector.align}>
               <AlignItemsBar
                 value={val("alignItems") ?? "stretch"}
                 onSet={(v) => set("alignItems", v)}
               />
             </Field>
-            <Field label="Gap">
-              <Num
+            <Field label="Gap">              <Num
                 value={numFromPx(val("gap")) ?? 0}
                 unit="px"
                 onChange={(n) => set("gap", pxValue(n))}
@@ -266,25 +254,39 @@ export function InspectorPanel({
 
       {kind === "text" ? (
         <>
-          {selection.textPreview ? (
-            <Block title="Texto">
-              <p className="rounded-[8px] bg-[var(--bg-2)] px-2.5 py-2 text-[13px] leading-snug text-[var(--text-0)]">
-                {selection.textPreview}
-              </p>
+          <Block title={t.inspector.text}>
+              <div className="relative">
+                {tweaks.find((t) => t.prop === "text") ? (
+                  <button
+                    type="button"
+                    title={t.inspector.resetText}
+                    onClick={() => onResetTweak("text")}
+                    className="absolute top-2 right-2 z-10 text-[var(--text-2)] hover:text-[var(--text-0)]"
+                  >
+                    <RotateCcw size={12} strokeWidth={1.75} />
+                  </button>
+                ) : null}
+                <textarea
+                  aria-label={t.inspector.nodeText}
+                  value={tweaks.find((t) => t.prop === "text")?.to ?? selection.textPreview}
+                  onChange={(e) => set("text", e.target.value)}
+                  rows={4}
+                  className="min-h-[72px] w-full resize-y rounded-[8px] bg-[var(--inspect-fill)] px-2.5 py-2 pr-8 text-[13px] leading-snug text-[var(--text-0)] outline-none"
+                />
+              </div>
             </Block>
-          ) : null}
-          <Block title="Tipografía">
+          <Block title={t.inspector.typography}>
             <div className="flex gap-1">
-              <div className="flex h-8 min-w-0 flex-1 items-center rounded-[8px] bg-[var(--bg-2)] px-2 text-[12px] text-[var(--text-0)]">
+              <div className="flex h-8 min-w-0 flex-1 items-center rounded-[8px] bg-[var(--inspect-fill)] px-2 text-[12px] text-[var(--text-0)]">
                 <span className="truncate">
-                  {selection.computed.fontFamily || "fuente"}
+                  {selection.computed.fontFamily || t.inspector.fontFallback}
                 </span>
               </div>
               <select
-                aria-label="Peso"
+                aria-label={t.inspector.weight}
                 value={String(weightFromComputed(val("fontWeight")) ?? 400)}
                 onChange={(e) => set("fontWeight", weightValue(Number(e.target.value)))}
-                className="h-8 w-[72px] shrink-0 rounded-[8px] bg-[var(--bg-2)] px-1.5 font-mono text-[12px] text-[var(--text-0)] outline-none"
+                className="h-8 w-[72px] shrink-0 rounded-[8px] bg-[var(--inspect-fill)] px-1.5 font-mono text-[12px] text-[var(--text-0)] outline-none"
               >
                 {[400, 500, 600, 700].map((w) => (
                   <option key={w} value={w}>
@@ -324,7 +326,7 @@ export function InspectorPanel({
                 ).map(([k, Icon]) => (
                   <Ico
                     key={k}
-                    title={`Alinear ${k}`}
+                    title={t.inspector.alignKey(k)}
                     active={alignFromComputed(val("textAlign")) === k}
                     icon={Icon}
                     onClick={() => set("textAlign", k)}
@@ -333,7 +335,7 @@ export function InspectorPanel({
               </IconGroup>
               <IconGroup>
                 <Ico
-                  title="Subrayado"
+                  title={t.inspector.underline}
                   active={(val("textDecoration") ?? "none").includes("underline")}
                   icon={Underline}
                   onClick={() =>
@@ -346,7 +348,7 @@ export function InspectorPanel({
                   }
                 />
                 <Ico
-                  title="Negrita"
+                  title={t.inspector.bold}
                   active={(weightFromComputed(val("fontWeight")) ?? 400) >= 600}
                   icon={Bold}
                   onClick={() =>
@@ -359,7 +361,7 @@ export function InspectorPanel({
                   }
                 />
                 <Ico
-                  title="Cursiva"
+                  title={t.inspector.italic}
                   active={(val("fontStyle") ?? "normal") === "italic"}
                   icon={Italic}
                   onClick={() =>
@@ -371,7 +373,7 @@ export function InspectorPanel({
                 />
               </IconGroup>
             </div>
-            <Field label="Color">
+            <Field label={t.inspector.color}>
               <ColorChip
                 hex={colorToHex(val("color")) ?? "#ffffff"}
                 onSet={(hex) => set("color", hex)}
@@ -382,12 +384,12 @@ export function InspectorPanel({
       ) : null}
 
       {kind === "image" ? (
-        <Block title="Imagen">
-          <Field label="Encaje">
+        <Block title={t.inspector.image}>
+          <Field label={t.inspector.fit}>
             <select
               value={val("objectFit") ?? "fill"}
               onChange={(e) => set("objectFit", e.target.value)}
-              className="h-7 rounded-[6px] bg-[var(--bg-3)] px-1.5 font-mono text-[11px] text-[var(--text-0)] outline-none"
+              className="h-7 rounded-[6px] bg-[var(--inspect-well)] px-1.5 font-mono text-[11px] text-[var(--text-0)] outline-none"
             >
               <option value="cover">cover</option>
               <option value="contain">contain</option>
@@ -397,16 +399,16 @@ export function InspectorPanel({
         </Block>
       ) : null}
 
-      <Block title="Estilos">
+      <Block title={t.inspector.styles}>
         <div className="flex gap-1">
-          <Field label="Opacidad" className="flex-1">
+          <Field label={t.inspector.opacity} className="flex-1">
             <Num
               value={opacityFromComputed(val("opacity")) ?? 100}
               unit="%"
               onChange={(n) => set("opacity", (n / 100).toFixed(2))}
             />
           </Field>
-          <Field label="Radio" className="flex-1">
+          <Field label={t.inspector.radius} className="flex-1">
             <Num
               value={numFromPx(val("borderRadius")) ?? 0}
               unit=""
@@ -415,7 +417,7 @@ export function InspectorPanel({
             {tweaks.some((t) => t.prop === "borderRadius") ? (
               <button
                 type="button"
-                title="Reiniciar radio"
+                title={t.inspector.resetRadius}
                 onClick={() => onResetTweak("borderRadius")}
                 className="text-[var(--text-2)] hover:text-[var(--text-0)]"
               >
@@ -425,7 +427,7 @@ export function InspectorPanel({
           </Field>
         </div>
         <AddRow
-          label="Fondo"
+          label={t.inspector.background}
           active={colorToHex(val("backgroundColor")) != null && val("backgroundColor") !== "rgba(0, 0, 0, 0)"}
           onAdd={() => set("backgroundColor", "#1e2127")}
         >
@@ -446,7 +448,7 @@ export function InspectorPanel({
           className="flex items-center gap-1.5 text-[12px] text-[var(--text-2)] hover:text-[var(--text-0)]"
         >
           <RotateCcw size={11} strokeWidth={1.75} />
-          Reiniciar preview
+          {t.inspector.resetPreview}
         </button>
       ) : null}
     </div>
@@ -473,7 +475,7 @@ function Field({
 }) {
   return (
     <div
-      className={`flex h-8 min-w-0 items-center gap-2 rounded-[8px] bg-[var(--bg-2)] px-2.5 ${className}`}
+      className={`flex h-8 min-w-0 items-center gap-2 rounded-[8px] bg-[var(--inspect-fill)] px-2.5 ${className}`}
     >
       <span className="shrink-0 text-[12px] text-[var(--text-1)]">{label}</span>
       <div className="ml-auto flex min-w-0 items-center gap-1">{children}</div>
@@ -498,7 +500,7 @@ function SizeField({
     ? Number(/([\d.]+)%/.exec(raw)?.[1] ?? 100)
     : (numFromPx(raw) ?? 0);
   return (
-    <div className="flex h-8 items-center gap-1 rounded-[8px] bg-[var(--bg-2)] px-2.5">
+    <div className="flex h-8 items-center gap-1 rounded-[8px] bg-[var(--inspect-fill)] px-2.5">
       <span className="text-[12px] text-[var(--text-1)]">{label}</span>
       <input
         type="text"
@@ -518,7 +520,7 @@ function SizeField({
           if (e.target.value === "fill") onSet("100%");
           else onSet(pxValue(numFromPx(computed) ?? 100));
         }}
-        className="h-6 rounded-[6px] bg-[var(--bg-3)] px-1 font-mono text-[11px] text-[var(--text-1)] outline-none"
+        className="h-6 rounded-[6px] bg-[var(--inspect-well)] px-1 font-mono text-[11px] text-[var(--text-1)] outline-none"
       >
         <option value="fixed">Fixed</option>
         <option value="fill">Fill</option>
@@ -563,7 +565,7 @@ function MiniNum({
   onChange(n: number): void;
 }) {
   return (
-    <div className="flex h-8 min-w-0 flex-1 items-center gap-1 rounded-[8px] bg-[var(--bg-2)] px-2">
+    <div className="flex h-8 min-w-0 flex-1 items-center gap-1 rounded-[8px] bg-[var(--inspect-fill)] px-2">
       <span className="text-[10px] text-[var(--text-2)]">{label}</span>
       <input
         type="text"
@@ -621,7 +623,7 @@ function AddRow({
   children?: ReactNode;
 }) {
   return (
-    <div className="flex h-8 items-center rounded-[8px] bg-[var(--bg-2)] px-2.5">
+    <div className="flex h-8 items-center rounded-[8px] bg-[var(--inspect-fill)] px-2.5">
       <span className="text-[12px] text-[var(--text-1)]">{label}</span>
       <div className="ml-auto flex items-center gap-1">
         {active ? children : (
@@ -660,7 +662,7 @@ function Ico({
       title={title}
       onClick={onClick}
       className={`flex size-7 items-center justify-center rounded-[6px] ${
-        active ? "bg-[var(--bg-3)] text-[var(--text-0)]" : "text-[var(--text-2)] hover:text-[var(--text-0)]"
+        active ? "bg-[var(--inspect-well)] text-[var(--text-0)]" : "text-[var(--text-2)] hover:text-[var(--text-0)]"
       }`}
     >
       <Icon size={13} strokeWidth={1.75} />
@@ -711,77 +713,28 @@ function AlignItemsBar({ value, onSet }: { value: string; onSet(v: string): void
   );
 }
 
-function PathRow({ selection }: { selection: Selection }) {
-  const [copied, setCopied] = useState<"path" | "snippet" | null>(null);
-  const path = selection.source.file
-    ? `${selection.source.file}:${selection.source.line}`
-    : null;
-  if (path === null) {
-    return (
-      <div className="flex flex-col gap-1.5 rounded-[6px] bg-[var(--warn)]/10 px-2 py-1.5">
-        <p className="font-mono text-[11px] text-[var(--warn)]">
-          Sin data-tsd-source — activa TanStack Devtools source injection
-        </p>
-        <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10px] text-[var(--text-1)]">
-          {DEVTOOLS_SNIPPET}
-        </pre>
-        <button
-          type="button"
-          onClick={() => {
-            void navigator.clipboard.writeText(DEVTOOLS_SNIPPET).then(() => {
-              setCopied("snippet");
-              window.setTimeout(() => setCopied(null), 1200);
-            });
-          }}
-          className="w-fit text-[11px] text-[var(--warn)] hover:underline"
-        >
-          {copied === "snippet" ? "snippet copiado ✓" : "Copiar snippet Devtools"}
-        </button>
-      </div>
-    );
-  }
+function MissingSourceBanner() {
+  const [copied, setCopied] = useState(false);
   return (
-    <button
-      type="button"
-      title="Click para copiar"
-      onClick={() => {
-        void navigator.clipboard.writeText(path).then(() => {
-          setCopied("path");
-          window.setTimeout(() => setCopied(null), 1200);
-        });
-      }}
-      className="w-fit font-mono text-[11px] text-[var(--text-2)] hover:text-[var(--text-0)]"
-    >
-      {copied === "path" ? "copiado ✓" : path}
-    </button>
-  );
-}
-
-function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-}: {
-  value: T;
-  onChange(v: T): void;
-  options: Array<{ value: T; label: string }>;
-}) {
-  return (
-    <div className="flex overflow-hidden rounded-[6px] bg-[var(--bg-2)]">
-      {options.map((o) => (
-        <button
-          key={o.value}
-          type="button"
-          onClick={() => onChange(o.value)}
-          className={`px-2 py-0.5 text-[11px] ${
-            o.value === value
-              ? "bg-[var(--accent)] text-white"
-              : "text-[var(--text-1)] hover:bg-[var(--bg-3)]"
-          }`}
-        >
-          {o.label}
-        </button>
-      ))}
+    <div className="flex flex-col gap-1.5 rounded-[6px] bg-[var(--warn)]/10 px-2 py-1.5">
+      <p className="font-mono text-[11px] text-[var(--warn)]">
+        {t.inspector.missingSource}
+      </p>
+      <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-[10px] text-[var(--text-1)]">
+        {DEVTOOLS_SNIPPET}
+      </pre>
+      <button
+        type="button"
+        onClick={() => {
+          void navigator.clipboard.writeText(DEVTOOLS_SNIPPET).then(() => {
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1200);
+          });
+        }}
+        className="w-fit text-[11px] text-[var(--warn)] hover:underline"
+      >
+        {copied ? t.inspector.snippetCopied : t.inspector.copySnippet}
+      </button>
     </div>
   );
 }
@@ -813,21 +766,21 @@ function SpacingVisual({
   };
 
   return (
-    <div className="relative mt-1 h-[108px] overflow-hidden rounded-[6px]">
+    <div className="relative mt-1 h-[108px] overflow-hidden rounded-[6px] border-t border-b border-t-[#5C5C5C] border-b-[#191919] bg-[#1A1C1F]">
       <div
-        className="absolute inset-x-0 top-0 h-[20px] bg-[#3a3e45]"
+        className="absolute inset-x-0 top-0 h-[20px] bg-[#4C4C4C]"
         style={{ clipPath: "polygon(0 0, 100% 0, calc(100% - 28px) 100%, 28px 100%)" }}
       />
       <div
-        className="absolute inset-x-0 bottom-0 h-[20px] bg-[#25282e]"
+        className="absolute inset-x-0 bottom-0 h-[20px] bg-[#3A3A3A]"
         style={{ clipPath: "polygon(28px 0, calc(100% - 28px) 0, 100% 100%, 0 100%)" }}
       />
       <div
-        className="absolute inset-y-0 left-0 w-[28px] bg-[#32363c]"
+        className="absolute inset-y-0 left-0 w-[28px] bg-[#424242]"
         style={{ clipPath: "polygon(0 0, 100% 20px, 100% calc(100% - 20px), 0 100%)" }}
       />
       <div
-        className="absolute inset-y-0 right-0 w-[28px] bg-[#2c3036]"
+        className="absolute inset-y-0 right-0 w-[28px] bg-[#424242]"
         style={{ clipPath: "polygon(0 20px, 100% 0, 100% 100%, 0 calc(100% - 20px))" }}
       />
       <span className="pointer-events-none absolute top-1 left-1.5 z-10 text-[8px] font-semibold tracking-[0.14em] text-[var(--text-2)]">
@@ -836,37 +789,37 @@ function SpacingVisual({
       {marginTweak ? (
         <button
           type="button"
-          title="Reiniciar margin"
+          title={t.inspector.resetMargin}
           onClick={() => onReset("margin")}
           className="absolute top-1 right-1 z-10 text-[var(--text-2)] hover:text-[var(--text-0)]"
         >
           <RotateCcw size={10} strokeWidth={1.75} />
         </button>
       ) : null}
-      <SideNum aria="Margin top" value={m[0]} onChange={(n) => setBox("margin", m, 0, n)} className="absolute top-[3px] left-1/2 z-10 -translate-x-1/2" />
+      <SideNum aria="Margin top" value={m[0]} onChange={(n) => setBox("margin", m, 0, n)} className="absolute top-0 left-1/2 z-10 -translate-x-1/2" />
       <SideNum aria="Margin right" value={m[1]} onChange={(n) => setBox("margin", m, 1, n)} className="absolute top-1/2 right-[1px] z-10 -translate-y-1/2" />
-      <SideNum aria="Margin bottom" value={m[2]} onChange={(n) => setBox("margin", m, 2, n)} className="absolute bottom-[3px] left-1/2 z-10 -translate-x-1/2" />
-      <SideNum aria="Margin left" value={m[3]} onChange={(n) => setBox("margin", m, 3, n)} className="absolute top-1/2 left-[1px] z-10 -translate-y-1/2" />
-      <div className="absolute inset-[20px_28px] rounded-[3px] bg-[#3a3e46]">
-        <span className="pointer-events-none absolute top-0.5 left-1.5 z-10 text-[8px] font-semibold tracking-[0.14em] text-[var(--text-2)]">
+      <SideNum aria="Margin bottom" value={m[2]} onChange={(n) => setBox("margin", m, 2, n)} className="absolute bottom-px left-1/2 z-10 -translate-x-1/2" />
+      <SideNum aria="Margin left" value={m[3]} onChange={(n) => setBox("margin", m, 3, n)} className="absolute top-[calc(50%+2px)] left-0 z-10 -translate-y-1/2" />
+      <div className="absolute inset-[22px_30px] rounded-[3px] border-t-[0.5px] border-[#535353] bg-[#424242]">
+        <span className="pointer-events-none absolute top-[5px] left-1.5 z-10 text-[8px] font-semibold tracking-[0.14em] text-[var(--text-2)]">
           PADDING
         </span>
         {paddingTweak ? (
           <button
             type="button"
-            title="Reiniciar padding"
+            title={t.inspector.resetPadding}
             onClick={() => onReset("padding")}
-            className="absolute top-0.5 right-1 z-10 text-[var(--text-2)] hover:text-[var(--text-0)]"
+            className="absolute top-[5px] right-1 z-10 text-[var(--text-2)] hover:text-[var(--text-0)]"
           >
             <RotateCcw size={10} strokeWidth={1.75} />
           </button>
         ) : null}
-        <SideNum aria="Padding top" value={p[0]} onChange={(n) => setBox("padding", p, 0, n)} className="absolute top-0.5 left-1/2 z-10 -translate-x-1/2" />
-        <SideNum aria="Padding right" value={p[1]} onChange={(n) => setBox("padding", p, 1, n)} className="absolute top-1/2 right-0.5 z-10 -translate-y-1/2" />
-        <SideNum aria="Padding bottom" value={p[2]} onChange={(n) => setBox("padding", p, 2, n)} className="absolute bottom-0.5 left-1/2 z-10 -translate-x-1/2" />
-        <SideNum aria="Padding left" value={p[3]} onChange={(n) => setBox("padding", p, 3, n)} className="absolute top-1/2 left-0.5 z-10 -translate-y-1/2" />
+        <SideNum aria="Padding top" value={p[0]} onChange={(n) => setBox("padding", p, 0, n)} className="absolute top-[7px] left-1/2 z-10 -translate-x-1/2" />
+        <SideNum aria="Padding right" value={p[1]} onChange={(n) => setBox("padding", p, 1, n)} className="absolute top-1/2 right-2.5 z-10 -translate-y-1/2" />
+        <SideNum aria="Padding bottom" value={p[2]} onChange={(n) => setBox("padding", p, 2, n)} className="absolute bottom-[3px] left-1/2 z-10 -translate-x-1/2" />
+        <SideNum aria="Padding left" value={p[3]} onChange={(n) => setBox("padding", p, 3, n)} className="absolute top-1/2 left-3 z-10 -translate-y-1/2" />
         <div
-          className="absolute top-1/2 right-6 left-6 h-3 -translate-y-1/2 rounded-[2px] bg-[var(--bg-0)]"
+          className="absolute top-1/2 left-1/2 h-3 w-[128px] -translate-x-1/2 -translate-y-1/2 rounded-[2px] bg-[#1F1F1F] shadow-[inset_0_1.5px_1.2px_#00000033]"
           title={selection.tag}
         />
       </div>

@@ -19,7 +19,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import type { ApplyPayload, Intent, TweakProp } from "@steer/domain";
+import type { AgentTodo, ApplyPayload, Intent, TweakProp } from "@steer/domain";
 import {
   ModelSelector,
   type AgentAdapterView,
@@ -27,18 +27,23 @@ import {
   type ReasoningEffortUi,
 } from "./ModelSelector";
 import { QuestionCard } from "./QuestionCard";
+import { TodoPanel } from "./TodoPanel";
+import { AgentTrace, type AgentTraceRow } from "./AgentTrace";
 import { LoadingState } from "./LoadingState";
+import { t } from "./i18n";
 
 export type PermissionPolicyUi = "default" | "always";
 
-const PERMISSION_POLICIES: Array<{
-  id: PermissionPolicyUi;
+const PERMISSION_POLICY_IDS = ["default", "always"] as const;
+
+function permissionPolicyMeta(id: PermissionPolicyUi): {
   label: string;
   hint: string;
-}> = [
-  { id: "default", label: "Default", hint: "Pide permiso en cada tool" },
-  { id: "always", label: "Always approved", hint: "Auto-aprueba las tools" },
-];
+} {
+  return id === "always"
+    ? { label: t.permissions.alwaysLabel, hint: t.permissions.alwaysHint }
+    : { label: t.permissions.defaultLabel, hint: t.permissions.defaultHint };
+}
 
 export type AgentSessionItemView = {
   id: string;
@@ -65,6 +70,14 @@ export type TranscriptBlockView =
       reasoning: string;
       tools: TranscriptToolView[];
       status: "streaming" | "done" | "error";
+      /**
+       * Respuesta partida en globos (un segmento por retomada tras
+       * tool/permiso/pregunta). Vacío/ausente → un globo con `text`.
+       */
+      segments?: string[];
+      /** Inicio/fin del turno (ms) para el "Pensó durante N s". */
+      startedAt?: number;
+      finishedAt?: number | null;
     }
   | {
       kind: "question";
@@ -129,6 +142,8 @@ export type ChatPanelProps = {
   agentOnline: boolean;
   /** Sesiones OpenCode del proyecto (picker). */
   agentSessions: AgentSessionItemView[];
+  /** Tareas que publicó el agente en el turno en curso (null = oculto). */
+  todos: AgentTodo[] | null;
   onDraftNote(text: string): void;
   onApply(): void;
   onClearQueue(): void;
@@ -170,6 +185,7 @@ export function ChatPanel({
   agentBusy,
   agentOnline,
   agentSessions,
+  todos,
   onDraftNote,
   onApply,
   onClearQueue,
@@ -264,12 +280,12 @@ export function ChatPanel({
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-1)]">
       <div className="flex h-8 shrink-0 items-center gap-1 px-2">
         <span className="min-w-0 flex-1 truncate text-[length:var(--fs-1)] text-[var(--text-1)]">
-          {sessionTitle ?? "Nueva sesión"}
+          {sessionTitle ?? t.chat.newSession}
         </span>
         <button
           type="button"
           onClick={openSessionsView}
-          title="Sesiones del proyecto"
+          title={t.chat.projectSessions}
           className="flex size-5 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
         >
           <History size={13} strokeWidth={1.75} />
@@ -277,7 +293,7 @@ export function ChatPanel({
         <button
           type="button"
           onClick={onNewSession}
-          title="Nueva sesión"
+          title={t.chat.newSession}
           className="flex size-5 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
         >
           <Plus size={13} strokeWidth={1.75} />
@@ -295,7 +311,7 @@ export function ChatPanel({
       >
         {transcript.length === 0 ? (
           <p className="mt-6 text-center text-[length:var(--fs-1)] text-[var(--text-2)]">
-            Deja comentarios en el preview o escribe una nota; el envío va al agente.
+            {t.chat.emptyTranscript}
           </p>
         ) : (
           <div className="flex flex-col gap-3">
@@ -328,6 +344,9 @@ export function ChatPanel({
                     reasoning={block.reasoning ?? ""}
                     tools={block.tools}
                     status={block.status}
+                    segments={block.segments}
+                    startedAt={block.startedAt}
+                    finishedAt={block.finishedAt}
                   />
                 );
               }
@@ -389,6 +408,12 @@ export function ChatPanel({
           </div>
         ) : null}
 
+        {todos != null && todos.length > 0 ? (
+          <div className="mb-2">
+            <TodoPanel todos={todos} />
+          </div>
+        ) : null}
+
         <Composer
           value={draftNote}
           onChange={onDraftNote}
@@ -401,16 +426,16 @@ export function ChatPanel({
           }
           sendHint={
             agentBusy
-              ? "Detener respuesta del agente"
+              ? t.chat.stopAgent
               : pendingEdits.length > 0 && pendingComments.length > 0
-                ? `Enviar ${pendingEdits.length} edición${pendingEdits.length === 1 ? "" : "es"} y ${pendingComments.length} comentario${pendingComments.length === 1 ? "" : "s"} (⌘Enter)`
+                ? t.chat.sendEditsAndComments(pendingEdits.length, pendingComments.length)
                 : pendingEdits.length > 0
-                  ? `Enviar ${pendingEdits.length} edición${pendingEdits.length === 1 ? "" : "es"} al agente (⌘Enter)`
+                  ? t.chat.sendEdits(pendingEdits.length)
                   : pendingComments.length > 0
-                    ? `Enviar ${pendingComments.length} comentario${pendingComments.length === 1 ? "" : "s"} al agente (⌘Enter)`
+                    ? t.chat.sendComments(pendingComments.length)
                     : attachments.length > 0
-                      ? "Enviar captura al agente (⌘Enter)"
-                      : "Enviar al agente (⌘Enter)"
+                      ? t.chat.sendCapture
+                      : t.chat.sendToAgent
           }
           attachments={attachments}
           onRemoveAttachment={onRemoveAttachment}
@@ -449,8 +474,7 @@ function PendingEdits({
 
   if (edits.length === 0) return null;
 
-  const label =
-    edits.length === 1 ? "1 edición" : `${edits.length} ediciones`;
+  const label = t.chat.nEdits(edits.length);
 
   return (
     <div className="relative">
@@ -490,7 +514,7 @@ function PendingEdits({
               <button
                 type="button"
                 onClick={() => onRemove(e.id)}
-                title="Eliminar edición"
+                title={t.chat.deleteEdit}
                 className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
               >
                 <X size={10} strokeWidth={2} />
@@ -520,10 +544,7 @@ function PendingComments({
 
   if (comments.length === 0) return null;
 
-  const label =
-    comments.length === 1
-      ? "1 comentario"
-      : `${comments.length} comentarios`;
+  const label = t.chat.nComments(comments.length);
 
   return (
     <div className="relative">
@@ -553,7 +574,7 @@ function PendingComments({
                   onFocus(c.id);
                   setOpen(false);
                 }}
-                title="Editar comentario en el preview"
+                title={t.chat.editCommentOnPreview}
                 className="min-w-0 flex-1 text-left"
               >
                 <span className="font-mono text-[var(--pin)]">#{c.pin}</span>{" "}
@@ -564,7 +585,7 @@ function PendingComments({
               <button
                 type="button"
                 onClick={() => onRemove(c.id)}
-                title="Eliminar"
+                title={t.common.delete}
                 className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
               >
                 <X size={10} strokeWidth={2} />
@@ -612,7 +633,7 @@ function SessionsPanel({
       await onDeleteAgent(id);
     } catch (err) {
       setDeleteError(
-        err instanceof Error ? err.message : "No pude eliminar la sesión.",
+        err instanceof Error ? err.message : t.sessions.deleteFailed,
       );
     } finally {
       setDeletingId(null);
@@ -625,18 +646,18 @@ function SessionsPanel({
         <button
           type="button"
           onClick={onBack}
-          title="Volver al chat"
+          title={t.sessions.backToChat}
           className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
         >
           <ChevronLeft size={14} strokeWidth={1.75} />
         </button>
         <h2 className="min-w-0 flex-1 truncate text-[length:var(--fs-1)] font-medium text-[var(--text-0)]">
-          Sesiones
+          {t.sessions.title}
         </h2>
         <button
           type="button"
           onClick={onRefresh}
-          title="Actualizar sesiones OpenCode"
+          title={t.sessions.refreshAgent}
           className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
         >
           <ChevronUp size={13} strokeWidth={1.75} />
@@ -659,24 +680,24 @@ function SessionsPanel({
           className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-m)] border border-dashed border-[var(--line)] bg-[var(--bg-0)] px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-1)] transition-colors duration-120 hover:border-[var(--accent)] hover:text-[var(--text-0)]"
         >
           <Plus size={13} strokeWidth={1.75} />
-          Nueva conversación
+          {t.sessions.newConversation}
         </button>
 
-        <SessionSection title="Conversaciones en Steer">
+        <SessionSection title={t.sessions.localSection}>
           {localSorted.length === 0 ? (
-            <EmptySessionsCopy text="Aún no hay conversaciones." />
+            <EmptySessionsCopy text={t.sessions.emptyLocal} />
           ) : (
             <ul className="flex flex-col gap-1">
               {localSorted.map((s) => (
                 <SessionRow
                   key={s.id}
-                  title={s.title ?? "Nueva sesión"}
-                  meta={`${s.blockCount} mensaje${s.blockCount === 1 ? "" : "s"}`}
+                  title={s.title ?? t.chat.newSession}
+                  meta={t.sessions.nMessages(s.blockCount)}
                   date={s.createdAt}
                   active={s.active}
                   onOpen={() => onSelectLocal(s.id)}
                   onDelete={() => onDeleteLocal(s.id)}
-                  deleteHint="Se pierde el historial."
+                  deleteHint={t.sessions.deleteLocalHint}
                   deleting={deletingId === s.id}
                 />
               ))}
@@ -686,22 +707,22 @@ function SessionsPanel({
 
         <SessionSection title="OpenCode" className="mt-5">
           {!agentOnline ? (
-            <EmptySessionsCopy text="OpenCode no responde. Arranca opencode serve para ver sesiones del proyecto." />
+            <EmptySessionsCopy text={t.sessions.agentOffline} />
           ) : agentSorted.length === 0 ? (
-            <EmptySessionsCopy text="Sin sesiones de OpenCode para este proyecto." />
+            <EmptySessionsCopy text={t.sessions.emptyAgent} />
           ) : (
             <ul className="flex flex-col gap-1">
               {agentSorted.map((s) => (
                 <SessionRow
                   key={s.id}
                   title={s.title}
-                  meta={s.bound ? "activa" : undefined}
+                  meta={s.bound ? t.sessions.active : undefined}
                   date={s.createdAt}
                   active={s.bound}
                   icon={<Bot size={12} strokeWidth={1.75} />}
                   onOpen={() => onOpenAgent(s.id, s.title)}
                   onDelete={() => void handleDeleteAgent(s.id)}
-                  deleteHint="Se eliminará la sesión del agente."
+                  deleteHint={t.sessions.deleteAgentHint}
                   deleting={deletingId === s.id}
                 />
               ))}
@@ -803,12 +824,12 @@ function SessionRow({
             onClick={() => setConfirming(false)}
             className="shrink-0 rounded-[var(--radius-s)] px-2 py-1 text-[length:var(--fs-0)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)] disabled:opacity-40"
           >
-            Cancelar
+            {t.common.cancel}
           </button>
           <button
             type="button"
             disabled={deleting}
-            title={deleting ? "Eliminando…" : "Eliminar"}
+            title={deleting ? t.common.deleting : t.common.delete}
             onClick={() => {
               onDelete();
               setConfirming(false);
@@ -825,7 +846,7 @@ function SessionRow({
             onClick={onOpen}
             className="shrink-0 rounded-[var(--radius-s)] px-2 py-1 text-[length:var(--fs-0)] text-[var(--accent)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
           >
-            Abrir
+            {t.common.open}
           </button>
           <button
             type="button"
@@ -833,7 +854,7 @@ function SessionRow({
               e.stopPropagation();
               setConfirming(true);
             }}
-            title="Eliminar"
+            title={t.common.delete}
             className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-2)] transition-colors duration-120 hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
           >
             <Trash2 size={12} strokeWidth={1.75} />
@@ -868,7 +889,7 @@ const IntentBatchCard = memo(function IntentBatchCard({
       intents.map((i) => ("scope" in i ? i.scope : null)).filter((s) => s !== null),
     ),
   ].join(" + ");
-  const header = `${intents.length} intent${intents.length === 1 ? "" : "s"}${scopes ? ` · ${scopes}` : ""}`;
+  const header = t.chat.intentsHeader(intents.length, scopes);
 
   return (
     <div className="overflow-hidden rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)]">
@@ -950,68 +971,95 @@ const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
   );
 });
 
-const THINKING_PHRASES = [
-  "Pensando…",
-  "Analizando el proyecto…",
-  "Revisando archivos…",
-  "Buscando la mejor solución…",
-  "Preparando respuesta…",
-];
-
 function AgentThinkingIndicator() {
   const [index, setIndex] = useState(0);
 
   useEffect(() => {
     const id = window.setInterval(() => {
-      setIndex((i) => (i + 1) % THINKING_PHRASES.length);
+      setIndex((i) => (i + 1) % t.chat.thinkingPhrases.length);
     }, 2800);
     return () => window.clearInterval(id);
   }, []);
 
   return (
-    <LoadingState label={THINKING_PHRASES[index] ?? THINKING_PHRASES[0]} />
+    <LoadingState
+      label={t.chat.thinkingPhrases[index] ?? t.chat.thinkingPhrases[0]}
+    />
   );
 }
 
+/** Razonamiento como traza de prosa: inicia cerrado (el usuario decide),
+ * header con shimmer mientras es la fase activa y "Pensó durante N s" al
+ * asentarse. */
 const ReasoningPanel = memo(function ReasoningPanel({
   text,
   active,
-  streaming,
+  startedAt,
+  finishedAt,
 }: {
   text: string;
   active?: boolean;
-  streaming?: boolean;
+  startedAt?: number;
+  finishedAt?: number | null;
 }) {
+  // Prosa en párrafos; el markdown costoso queda solo para la respuesta.
+  const rows: AgentTraceRow[] = useMemo(
+    () =>
+      text
+        .split(/\n{2,}/)
+        .map((p) => p.trim())
+        .filter((p) => p !== "")
+        .map((p) => ({ primary: p })),
+    [text],
+  );
+  const settled =
+    startedAt != null && finishedAt != null
+      ? t.chat.thoughtFor(
+          Math.max(1, Math.round((finishedAt - startedAt) / 1000)),
+        )
+      : t.chat.reasoning;
   return (
-    <details
-      className="group rounded-[var(--radius-s)] border border-[var(--line)] bg-[var(--bg-1)]"
-    >
-      <summary className="cursor-pointer list-none px-2 py-1 font-mono text-[length:var(--fs-0)] text-[var(--text-2)] marker:content-none [&::-webkit-details-marker]:hidden">
-        <span className="inline-flex items-center gap-1">
-          <ChevronDown
-            size={12}
-            className="transition group-open:rotate-180"
-            aria-hidden
-          />
-          <span className={active ? "steer-shimmer" : undefined}>
-            Razonamiento
-          </span>
-        </span>
-      </summary>
-      <div className="border-t border-[var(--line)] px-2 py-1.5">
-        {/* Mientras llega el stream mostramos texto plano; el markdown
-            (costoso) se parsea una sola vez al cerrar el turno. */}
-        {streaming ? (
-          <p className="whitespace-pre-wrap font-mono text-[length:var(--fs-1)] text-[var(--text-2)]">
-            {text}
-          </p>
-        ) : (
-          <MarkdownBody text={text} />
-        )}
-      </div>
-    </details>
+    <AgentTrace
+      variant="reasoning"
+      working={active === true}
+      rows={rows}
+      active={t.chat.thinking}
+      done={settled}
+    />
   );
 });
+
+/** Nombres de tool que sugieren búsqueda web → fila estilo search. */
+const SEARCH_TOOL = /search|websearch|webfetch|grep|glob|find/i;
+
+/** Extrae la query de un detail JSON; tolera detail plano (título). */
+function searchQueryOf(detail: string | undefined): string | null {
+  if (detail == null || detail === "") return null;
+  try {
+    const parsed = JSON.parse(detail) as Record<string, unknown>;
+    for (const key of ["query", "q", "pattern", "url", "path"]) {
+      const v = parsed[key];
+      if (typeof v === "string" && v !== "") return v;
+    }
+  } catch {
+    // No era JSON: el título crudo sirve si es corto.
+  }
+  return detail.length <= 140 ? detail : null;
+}
+
+function toolRows(tools: TranscriptToolView[]): AgentTraceRow[] {
+  return tools.map((t) => {
+    const search = SEARCH_TOOL.test(t.name);
+    const query = search ? searchQueryOf(t.detail) : null;
+    return {
+      primary: query ?? t.name,
+      secondary: search ? (query != null ? t.name : undefined) : t.detail || undefined,
+      mono: !search,
+      status: t.status,
+      tone: search ? ("accent" as const) : undefined,
+    };
+  });
+}
 
 const ToolsSummaryPanel = memo(function ToolsSummaryPanel({
   tools,
@@ -1022,62 +1070,18 @@ const ToolsSummaryPanel = memo(function ToolsSummaryPanel({
   runningCount: number;
   active?: boolean;
 }) {
-  const rows: TranscriptToolView[] = [];
-  const seen = new Set<string>();
-  for (const t of tools) {
-    if (t.id != null && t.id !== "") {
-      if (seen.has(t.id)) {
-        const idx = rows.findIndex((r) => r.id === t.id);
-        if (idx >= 0) rows[idx] = t;
-        continue;
-      }
-      seen.add(t.id);
-    }
-    rows.push(t);
-  }
-
+  const n = tools.length;
   return (
-    <details
-      className="group rounded-[var(--radius-s)] border border-[var(--line)] bg-[var(--bg-1)]"
-    >
-      <summary className="cursor-pointer list-none px-2 py-1 font-mono text-[length:var(--fs-0)] text-[var(--text-2)] marker:content-none [&::-webkit-details-marker]:hidden">
-        <span className="inline-flex items-center gap-1">
-          <ChevronDown
-            size={12}
-            className="transition group-open:rotate-180"
-            aria-hidden
-          />
-          <span className={active ? "steer-shimmer" : undefined}>
-            Herramientas ({rows.length})
-          </span>
-          {runningCount > 0 ? (
-            <span className="text-[var(--warn)]">· {runningCount} en curso</span>
-          ) : null}
-        </span>
-      </summary>
-      <ul className="space-y-0.5 border-t border-[var(--line)] px-2 py-1.5">
-        {rows.map((t, i) => (
-          <li
-            key={t.id ?? `${t.name}-${i}`}
-            className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
-          >
-            <span
-              className={
-                t.status === "start" ? "text-[var(--warn)]" : "text-[var(--ok)]"
-              }
-            >
-              {t.status === "start" ? "·" : "✓"}
-            </span>{" "}
-            <span className="text-[var(--text-1)]">{t.name}</span>
-            {t.detail ? (
-              <span className="block truncate pl-3 text-[var(--text-2)]">
-                {t.detail}
-              </span>
-            ) : null}
-          </li>
-        ))}
-      </ul>
-    </details>
+    <AgentTrace
+      variant="coding"
+      working={active === true}
+      rows={toolRows(tools)}
+      active={t.chat.runningTools}
+      done={n === 1 ? t.chat.ranOneTool : t.chat.ranTools(n)}
+      activeNote={
+        runningCount > 0 ? t.common.inProgressNote(runningCount) : undefined
+      }
+    />
   );
 });
 
@@ -1104,17 +1108,24 @@ const AgentTextBubble = memo(function AgentTextBubble({
   );
 });
 
-// Turno del agente: reasoning/tools sueltos; respuesta en globo aparte.
+// Turno del agente: reasoning/tools sueltos; respuesta en globos aparte
+// (un globo por segmento, chat-like).
 const AgentBlock = memo(function AgentBlock({
   text,
   reasoning,
   tools,
   status,
+  segments,
+  startedAt,
+  finishedAt,
 }: {
   text: string;
   reasoning: string;
   tools: TranscriptToolView[];
   status: "streaming" | "done" | "error";
+  segments?: string[];
+  startedAt?: number;
+  finishedAt?: number | null;
 }) {
   const streaming = status === "streaming";
   const uniqueTools: TranscriptToolView[] = [];
@@ -1134,13 +1145,20 @@ const AgentBlock = memo(function AgentBlock({
   const reasoningActive =
     streaming && reasoning !== "" && runningTools === 0 && text === "";
   const toolsActive = streaming && runningTools > 0;
+  const bubbles =
+    segments != null && segments.length > 0
+      ? segments
+      : text !== ""
+        ? [text]
+        : [];
   return (
     <div className="flex flex-col gap-1.5">
       {reasoning !== "" ? (
         <ReasoningPanel
           text={reasoning}
           active={reasoningActive}
-          streaming={streaming}
+          startedAt={startedAt}
+          finishedAt={finishedAt}
         />
       ) : null}
 
@@ -1152,10 +1170,12 @@ const AgentBlock = memo(function AgentBlock({
         />
       ) : null}
 
-      {text !== "" ? (
-        <AgentTextBubble text={text} status={status} />
+      {bubbles.length > 0 ? (
+        bubbles.map((bubble, i) => (
+          <AgentTextBubble key={i} text={bubble} status={status} />
+        ))
       ) : status === "error" ? (
-        <AgentTextBubble text="Error en el turno del agente." status={status} />
+        <AgentTextBubble text={t.chat.turnError} status={status} />
       ) : null}
     </div>
   );
@@ -1245,7 +1265,7 @@ function Composer({
               />
               <button
                 type="button"
-                title="Quitar captura"
+                title={t.chat.removeCapture}
                 onClick={() => onRemoveAttachment(a.id)}
                 className="absolute top-0.5 right-0.5 flex size-4 items-center justify-center rounded-full bg-[var(--bg-0)] text-[var(--text-2)] hover:text-[var(--danger)]"
               >
@@ -1260,7 +1280,7 @@ function Composer({
         data-steer-composer=""
         rows={3}
         value={value}
-        placeholder="Nota opcional… (el envío manda comentarios + cola al agente)"
+        placeholder={t.chat.notePlaceholder}
         onChange={(e) => {
           onChange(e.target.value);
           autoGrow();
@@ -1296,8 +1316,8 @@ function Composer({
             onClick={() => setModeOpen((v) => !v)}
             title={
               permissionPolicy === "always"
-                ? "Permisos: always approved"
-                : "Permisos: default"
+                ? t.permissions.alwaysTitle
+                : t.permissions.defaultTitle
             }
             className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] bg-[var(--bg-3)] transition-colors duration-120 hover:text-[var(--text-0)] ${
               permissionPolicy === "always"
@@ -1311,33 +1331,36 @@ function Composer({
             <>
               <button
                 type="button"
-                aria-label="Cerrar"
+                aria-label={t.common.close}
                 className="fixed inset-0 z-10 cursor-default"
                 onClick={() => setModeOpen(false)}
               />
               <div className="absolute right-0 bottom-full z-20 mb-1 w-48 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-                {PERMISSION_POLICIES.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      onSetPermissionPolicy(m.id);
-                      setModeOpen(false);
-                    }}
-                    className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
-                      permissionPolicy === m.id
-                        ? "bg-[var(--accent-dim)]"
-                        : "hover:bg-[var(--bg-2)]"
-                    }`}
-                  >
-                    <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
-                      {m.label}
-                    </span>
-                    <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-                      {m.hint}
-                    </span>
-                  </button>
-                ))}
+                {PERMISSION_POLICY_IDS.map((id) => {
+                  const meta = permissionPolicyMeta(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        onSetPermissionPolicy(id);
+                        setModeOpen(false);
+                      }}
+                      className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
+                        permissionPolicy === id
+                          ? "bg-[var(--accent-dim)]"
+                          : "hover:bg-[var(--bg-2)]"
+                      }`}
+                    >
+                      <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
+                        {meta.label}
+                      </span>
+                      <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
+                        {meta.hint}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
             </>
           ) : null}
@@ -1350,7 +1373,7 @@ function Composer({
             else if (canSend) onSubmit();
           }}
           disabled={!agentBusy && !canSend}
-          title={sendHint ?? "Enviar al agente (⌘Enter)"}
+          title={sendHint ?? t.chat.sendToAgent}
           className={`pointer-events-auto ml-auto flex size-6 shrink-0 items-center justify-center rounded-full transition-colors duration-120 disabled:opacity-40 ${
             agentBusy
               ? "bg-[var(--danger)] text-white hover:bg-[#e85d5d]"

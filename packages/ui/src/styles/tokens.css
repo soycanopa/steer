@@ -5,6 +5,8 @@
   --bg-1: #1f1f1f; /* paneles */
   --bg-2: #1e2127; /* inputs, chips */
   --bg-3: #252525; /* controles / hover */
+  --inspect-fill: #353535; /* campos del inspector */
+  --inspect-well: #404040; /* controles anidados del inspector */
   --line: #2c313a;
   --text-0: #f2f3f5;
   --text-1: #c4c8d0;
@@ -152,4 +154,25 @@ body.steer-resizing iframe {
   background-clip: text;
   color: transparent;
   animation: steer-shimmer 1.8s ease-in-out infinite;
+}
+
+/* AgentTrace: entrada del header asentado y de los rows del trace. */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
