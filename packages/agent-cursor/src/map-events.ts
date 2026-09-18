@@ -1,6 +1,7 @@
 // SDKMessage del sidecar Cursor → AgentEvent. El stream puede mandar
 // snapshots de texto; emitimos solo deltas.
 
+import { isTodoTool, parseTodos } from "@steer/domain";
 import type { AgentEvent, SessionId } from "@steer/ports";
 
 export type CursorSdkMessage = {
@@ -16,18 +17,26 @@ export type CursorSdkMessage = {
   args?: unknown;
 };
 
-function textFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
+function splitContent(content: unknown): { text: string; thinking: string } {
+  if (typeof content === "string") return { text: content, thinking: "" };
+  if (!Array.isArray(content)) return { text: "", thinking: "" };
+  const text: string[] = [];
+  const thinking: string[] = [];
   for (const block of content) {
     if (typeof block !== "object" || block === null) continue;
     const b = block as { type?: unknown; text?: unknown };
-    if (b.type === "text" && typeof b.text === "string") {
-      parts.push(b.text);
+    if (typeof b.text !== "string") continue;
+    if (
+      b.type === "thinking" ||
+      b.type === "thought" ||
+      b.type === "reasoning"
+    ) {
+      thinking.push(b.text);
+    } else if (b.type === "text" || b.type == null) {
+      text.push(b.text);
     }
   }
-  return parts.join("");
+  return { text: text.join(""), thinking: thinking.join("") };
 }
 
 function delta(prev: string | undefined, next: string): string | null {
@@ -74,19 +83,39 @@ export function createCursorEventMapper() {
     }
 
     if (e.type === "assistant") {
-      const next = textFromContent(e.message?.content);
-      const d = delta(assistantText === "" ? undefined : assistantText, next);
+      const parts = splitContent(e.message?.content);
+      const think = delta(
+        thinkingText === "" ? undefined : thinkingText,
+        parts.thinking,
+      );
+      if (think != null) {
+        thinkingText = parts.thinking.startsWith(thinkingText)
+          ? parts.thinking
+          : thinkingText + think;
+        out.push({ type: "reasoning-delta", text: think });
+      }
+      const d = delta(assistantText === "" ? undefined : assistantText, parts.text);
       if (d != null) {
-        assistantText = next.startsWith(assistantText)
-          ? next
+        assistantText = parts.text.startsWith(assistantText)
+          ? parts.text
           : assistantText + d;
         out.push({ type: "text-delta", text: d });
       }
       return out;
     }
 
-    if (e.type === "thinking") {
-      const next = typeof e.text === "string" ? e.text : "";
+    if (
+      e.type === "thinking" ||
+      e.type === "thought" ||
+      e.type === "reasoning"
+    ) {
+      const fromMsg = splitContent(e.message?.content).thinking;
+      const next =
+        typeof e.text === "string" && e.text !== ""
+          ? e.text
+          : fromMsg !== ""
+            ? fromMsg
+            : splitContent(e.message?.content).text;
       const d = delta(thinkingText === "" ? undefined : thinkingText, next);
       if (d != null) {
         thinkingText = next.startsWith(thinkingText) ? next : thinkingText + d;
@@ -106,6 +135,10 @@ export function createCursorEventMapper() {
         status,
         detail: toolDetail(status === "start" ? e.args : undefined),
       });
+      if (isTodoTool(name)) {
+        const todos = parseTodos(e.args);
+        if (todos.length > 0) out.push({ type: "todo", todos });
+      }
       return out;
     }
 
@@ -113,7 +146,7 @@ export function createCursorEventMapper() {
       out.push({
         type: "permission",
         permissionId: e.request_id,
-        summary: "Cursor pide confirmación",
+        summary: "Cursor asks for confirmation",
       });
       return out;
     }
@@ -122,7 +155,7 @@ export function createCursorEventMapper() {
       const message =
         typeof e.text === "string" && e.text !== ""
           ? e.text
-          : "Cursor: el turno falló";
+          : "Cursor: turn failed";
       out.push({ type: "error", message });
       return out;
     }

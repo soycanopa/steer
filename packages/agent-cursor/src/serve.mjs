@@ -269,7 +269,7 @@ const server = http.createServer(async (req, res) => {
         if (result.status === "error") {
           write({
             type: "error",
-            text: result.error?.message ?? "Cursor: el turno falló",
+            text: result.error?.message ?? "Cursor: turn failed",
           });
         } else if (result.status === "cancelled") {
           write({ type: "error", text: "Turno abortado" });
