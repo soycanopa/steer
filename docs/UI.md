@@ -17,6 +17,8 @@ Referencia de *densidad*: DevTools + un cliente de agente serio. No Forge pixel-
 --bg-1:        #16181c        /* paneles */
 --bg-2:        #1e2127        /* inputs, chips */
 --bg-3:        #272b33        /* hover */
+--inspect-fill:#353535        /* campos del inspector */
+--inspect-well:#404040        /* controles anidados del inspector */
 --line:        #2c313a
 --text-0:      #f2f3f5
 --text-1:      #c4c8d0
@@ -76,15 +78,12 @@ Padding 12. Secciones colapsables (default abiertas):
 ### 5.1 Selección
 
 - Breadcrumb: `Hero / h1` (fs-1, text-1, `/` text-2)
-- Path: `src/components/Hero.tsx:42` (mono fs-0, copiable al click)
 - Text preview entre comillas, max 2 líneas
-- Segmented control alcance:
-  - `Instancia`
-  - `Componente`
+- Alcance instancia/componente viaja en el Intent; no se muestra en el inspector.
 
 Si no hay selección: ilustración vacía 0. Empty copy del UX.md.
 
-Si no hay source: path muestra `—` y banner warn.
+Si no hay source: banner warn + snippet Devtools. El path `file:line` no se muestra en el inspector.
 
 ### 5.2 Tweaks
 
@@ -144,6 +143,12 @@ Tipos de bloque:
 
 Composer: textarea auto-grow 1–6 filas, `--bg-2`, placeholder “Añade una nota o deja que hablen los intents”. Botón send icon. A la izquierda, botón modelo (label corto).
 
+**Tareas** (`TodoPanel`, mismo slot que QuestionCard, encima del composer): colapsable estilo *Razonamiento*. Header mono: “Tareas” + contador `hechas/total` + “· N en curso” en `--warn` con shimmer si hay actividad. Filas: ○ pending text-2, spinner `--warn` + shimmer in_progress, ✓ `--ok` completed, tachado cancelled. Solo visible durante el turno: app-state limpia la lista en done/error y el panel desaparece. Se alimenta de `AgentEvent` `todo` (genérico, sin nombres de provider).
+
+**Trazas del turno** (`AgentTrace`, reemplaza los `<details>` planos de Razonamiento y Herramientas): **siempre inician cerradas — el usuario decide si abrir**. Header con sparkle + label que hace shimmer mientras su fase trabaja y se asienta al cerrar el turno (“Pensó durante N s”, “Ejecutó N herramientas”); chevron para desplegar. Filas con entrada `fade-up`, línea vertical conectora, spinner `--warn` en curso y ✓ apagado en lo hecho. Variantes: `reasoning` (prosa del razonamiento), `coding` (tools: nombre + detalle mono, los de búsqueda con punto de color y la query como primary), `steps` y `search` disponibles en la primitiva. Sin contenido simulado: todo viene del stream (`AgentEvent`).
+
+**Respuesta en globos**: el turno del agente no es un solo globo que se llena; `app-state` sella un segmento cada vez que el agente retoma tras una herramienta/permiso/pregunta y cada segmento renderiza su propio globo markdown (chat-like). Bloques viejos persistidos caen a un globo único.
+
 Mientras stream: caret block, botón Abort (`Detener`) danger ghost.
 
 ## 7. Empty / onboarding screens
@@ -194,6 +199,7 @@ ChatPanel
   Transcript
   IntentBatchCard
   ToolChip
+  TodoPanel
   Composer
   ModelPopover
 Banner

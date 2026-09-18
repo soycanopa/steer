@@ -67,7 +67,7 @@ Vive en `packages/domain` (`serialize-turn`). Plantilla TRD §7. Los adapters no
 ## Estilo
 
 - TypeScript estricto. No `any`.
-- Copy UI en español. Código en inglés.
+- Copy UI en inglés, via i18n (`packages/ui/src/i18n`, locale base `en`; nada de strings sueltos en componentes). Código en inglés.
 - Commits `feat(domain):`, `feat(agent-opencode):`, `feat(ui):`, `feat(host):`.
 
 ## Rechazar en review

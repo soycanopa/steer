@@ -81,7 +81,7 @@ export type Selection = {
   component: string | null;     // nombre React si se puede inferir
   route: string | null;         // pathname Start
   tag: string;                  // h1, button, section
-  textPreview: string;          // max 80 chars
+  textPreview: string;          // copy del nodo; el bridge recorta a 4k
   computed: Record<string, string>;
   breadcrumb: string[];         // ["Hero", "h1"]
 };
@@ -108,7 +108,8 @@ export type TweakProp =
   | "fontStyle"
   | "textDecoration"
   | "borderRadius"
-  | "opacity";
+  | "opacity"
+  | "text";              // copy del nodo; overlay via textContent, no CSS
 
 export type Intent =
   | {
@@ -244,6 +245,8 @@ Asigna `data-steer-id` al nodo seleccionado. Nunca escribe al filesystem. `clear
 
 Selector por scope (Fase D): scope `instance` → `[data-steer-id]`; scope `component` → `[data-tsd-source="<file>:<line>:<col>"]` (así el override pinta todas las instancias del componente; si no hay source, cae a `data-steer-id`).
 
+`prop: "text"` no entra al `<style>`: el bridge guarda el `textContent` original y lo reemplaza en el nodo (restore en reset/clear). El overlay sigue siendo efímero; el source lo escribe el agente en Apply.
+
 ## 7. Serialización a prompt
 
 El adapter no manda JSON crudo al modelo como único contenido. Manda texto determinista + JSON adjunto para que el agente no “poeticée” el target.
@@ -271,6 +274,8 @@ Resumen humano:
 
 `domain.serializeTurn` produce ese texto. El adapter OpenCode lo manda como part. Otro adapter puede envolverlo con su system propio; no reescribe Intent.
 
+Además, `domain.TURN_GUIDELINES` viaja como primera parte de texto de **todo** turno (también los de texto puro, sin intents): tareas (todo) vivas — in_progress/completed al avanzar —, respuesta en markdown con párrafos cortos, reporte por pasos tras cada herramienta, y conservar la inspección (`@tanstack/devtools-vite` / `devtools()` en vite config, sin spread `{...props}` en JSX). `app-state` la antepone al armar `TurnRequest.parts`; los adapters solo la unen con el resto.
+
 ## 8. Adapter OpenCode (`packages/agent-opencode`)
 
 Implementa `AgentPort` (ARCHITECTURE.md §4). La UI no importa este package.
@@ -280,7 +285,7 @@ Implementa `AgentPort` (ARCHITECTURE.md §4). La UI no importa este package.
 - `ensureRuntime` → health o spawn via `ProcessPort`
 - `POST /session` si no hay `sessionId`
 - `POST /session/:id/prompt_async` con el texto serializado + extras mapeados
-- SSE → `AgentEvent`
+- SSE → `AgentEvent`. El evento de bus `todo.updated` y el input del tool part `todowrite` se mapean a `AgentEvent` `todo` (snapshot normalizado con `domain.parseTodos`)
 - `extras.reasoning.effort` se envía si el schema del server lo acepta; si no, se anexa al texto y `capabilities.reasoning` queda honest
 
 Endpoints que **solo este adapter** conoce:
@@ -317,16 +322,30 @@ Implementa el mismo `AgentPort`. El CLI `grok` habla ACP por stdio (`grok agent 
 - Auth: `XAI_API_KEY` si existe; si no, la sesión de `grok login`. **No** lee tokens de Grok Bot.app.
 - `adapterId` del `ModelRef` = `"grok"`. `app-state` elige el `AgentPort` por `adapterId`.
 - Effort del CLI (`--effort`) se mapea desde `extras.reasoning.effort` (`low` / `high` / `max`).
+- Transcript **Razonamiento** = `session/update` thought ACP (`agent_thought_chunk`, ContentBlock anidado) → `reasoning-delta`. No se sintetiza desde tools ni usage.
+- El sidecar es el **cliente ACP**: responde las requests que el agente le delega — `fs/read_text_file` (tope 256 KB, soporta `line`/`limit`), `fs/write_text_file`, `session/request_permission` (auto-allow; el CLI corre con `--always-approve`) — y responde `-32601` a lo no implementado. Sin respuesta el agente bloquea hasta el timeout del turno; nunca descartar una request entrante. El nombre real del tool puede viajar en `rawInput.type` (`{"type":"ListDir",…}`).
 
 ## 8.3 Adapter Antigravity (`packages/agent-antigravity`)
 
 Implementa el mismo `AgentPort`. El CLI `agy` habla headless NDJSON (`--input-format stream-json` / `--output-format stream-json`). El host spawnea `packages/agent-antigravity/src/serve.mjs` y el adapter habla HTTP+SSE.
 
-- Runtime: **local** (`cwd` = `TurnRequest.directory`).
+- Runtime: **local**. El CLI **ignora** el `cwd` del proceso (cae a `~/.gemini/antigravity-cli/scratch`). Steer pasa `--add-dir` con `TurnRequest.directory` y rechaza el `init` si `init.cwd` no es ese proyecto.
+- El adapter envuelve el prompt con `PROJECT_ROOT` (Steer ya abrió el repo). No reescribe Intent / `serializeTurn`.
 - Modelos: stdout de `agy models`. Nunca hardcodear ids.
 - Auth: sesión de `agy` / token CLI, o `GEMINI_API_KEY`. **No** lee el keyring de Antigravity.app.
-- `adapterId` = `"antigravity"`. El effort va en el id del modelo (`-high` / `-medium` / Thinking); el picker no muestra Reasoning.
+- `adapterId` = `"antigravity"`. El effort va en el id del modelo (`-high` / `-medium` / Thinking); el **picker** de Reasoning no se muestra.
+- El desplegable **Razonamiento** del chat es transcript (`AgentEvent` `reasoning-delta`) y vale para **cualquier** AgentPort (OpenCode, Cursor, Grok, Antigravity). No se inventa texto a partir de `usage.thinking_tokens`.
 - Claude Code y Codex quedan pendientes.
+
+## 8.4 Lista de tareas del agente (evento `todo`)
+
+Todos los adapters pueden emitir `AgentEvent` `{ type: "todo", todos: AgentTodo[] }`: snapshot completo de las tareas que el agente-producto publica durante el turno.
+
+- Contrato: `AgentTodo` / `parseTodos` / `replaceTodos` viven en `packages/domain/src/todos.ts`. Los estados crudos del provider se normalizan (`done` → `completed`, `active` → `in_progress`, desconocido → `pending`).
+- OpenCode: evento de bus `todo.updated` (filtrado por sesión) + fallback al `state.input` del tool part `todowrite`.
+- Cursor / Grok / Antigravity: tool calls cuyo nombre normalizado es `todowrite`, `todoupdate`, `writetodos`, `updatetodos`, `updateplan` o `setplan` (`domain.isTodoTool`); los args (`todos: [{content, status}]`, `plan: string[]`) se parsean con `parseTodos`. El evento genérico `tool` se sigue emitiendo.
+- app-state: `ChatSession.todos` guarda el snapshot (reemplazo, ids estables por contenido). En `done` / error / abort se limpia: el panel de tareas solo vive durante el turno.
+- UI: `packages/ui/src/TodoPanel.tsx`, colapsable sobre el composer (mismo slot que `QuestionCard`). Genérico: ningún import de adapters, ningún nombre de provider.
 
 ## 9. Commands Tauri (P0)
 

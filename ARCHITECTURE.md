@@ -126,8 +126,14 @@ export type TurnPart =
 export type AgentEvent =
   | { type: "session"; sessionId: SessionId }
   | { type: "text-delta"; text: string }
-  | { type: "tool"; name: string; status: "start" | "end"; detail?: string }
+  | { type: "reasoning-delta"; text: string }
+  | { type: "tool"; id?: string; name: string; status: "start" | "end"; detail?: string }
+  /** Snapshot completo de las tareas del agente (todo.updated de OpenCode,
+   * tool calls todowrite / update_plan de los CLI). Normalizado con
+   * domain.parseTodos; el store lo reemplaza y lo limpia en done/error. */
+  | { type: "todo"; todos: AgentTodo[] }
   | { type: "permission"; permissionId: string; summary: string }
+  | { type: "question"; questionId: string; questions: Array<{ prompt: string; header?: string; options?: string[] }> }
   | { type: "done" }
   | { type: "error"; message: string };
 
@@ -295,7 +301,8 @@ payload = domain.buildApplyPayload(queue, projectRoot)
 prompt  = domain.serializeTurn(payload, userNote)
 for await (ev of agentPort.startTurn({ parts: [{type:'intents', payload}, {type:'text', text: userNote}] }))
   transcript.push(ev)
-if ev.done: previewPort.clearOverrides()
+  if ev.type === 'todo': session.todos = domain.replaceTodos(session.todos, ev.todos)
+if ev.done: previewPort.clearOverrides(); session.todos = null
 ```
 
 Ese flujo no se reescribe por provider.
@@ -323,4 +330,5 @@ Un test de UI que instancie `OpencodeAgent` es un test mal puesto.
 - ¿Desarrollo en React? Solo `packages/ui` y el composition root.
 - ¿Dónde pongo un provider nuevo? `packages/agent-<id>` implementando `AgentPort`.
 - ¿Dónde pongo un slider nuevo? `domain` (TweakProp) + `ui` (fila) + overlay en `preview-bridge`. Cero agentes.
+- Copy de un nodo de texto: `TweakProp "text"`; el overlay es `textContent`, no CSS.
 - ¿Puedo llamar `fetch('http://127.0.0.1:4096')` desde un componente? No.
