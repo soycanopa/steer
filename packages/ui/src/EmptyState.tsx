@@ -1,6 +1,8 @@
 // EmptyState — UI.md §7 / UX.md §5.1. Pantalla completa, no el layout de
 // tres zonas. Sin video, sin carousel.
 
+import { t } from "./i18n";
+
 export type EmptyStateProps = {
   recents: string[];
   opening: boolean;
@@ -47,7 +49,7 @@ export function EmptyState({
             Steer
           </div>
           <p className="text-[length:var(--fs-2)] text-[var(--text-2)]">
-            Dirige el diseño. El agente escribe el código.
+            {t.home.tagline}
           </p>
         </div>
 
@@ -58,7 +60,7 @@ export function EmptyState({
             onClick={onOpenProject}
             className="rounded-[var(--radius-m)] bg-[var(--accent)] px-4 py-2 text-[length:var(--fs-2)] font-medium text-white transition-colors duration-120 hover:bg-[#6c99ff] disabled:opacity-40"
           >
-            {opening ? "Detectando…" : "Abrir proyecto"}
+            {opening ? t.home.detecting : t.home.openProject}
           </button>
           <button
             type="button"
@@ -66,7 +68,7 @@ export function EmptyState({
             onClick={onCreateProject}
             className="rounded-[var(--radius-m)] bg-[var(--bg-2)] px-4 py-2 text-[length:var(--fs-2)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--bg-3)] disabled:opacity-40"
           >
-            {creating ? "Creando…" : "Crear proyecto TanStack Start"}
+            {creating ? t.home.creating : t.home.createProject}
           </button>
         </div>
 
@@ -82,7 +84,7 @@ export function EmptyState({
         {recents.length > 0 ? (
           <div className="w-full">
             <p className="mb-1 text-left font-mono text-[length:var(--fs-0)] tracking-wide text-[var(--text-2)] uppercase">
-              Recientes
+              {t.home.recents}
             </p>
             <ul>
               {recents.map((path) => (
@@ -102,7 +104,7 @@ export function EmptyState({
         ) : null}
 
         <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">
-          El código se queda en tu disco. Steer no es el editor.
+          {t.home.codeStaysLocal}
         </p>
       </div>
     </div>

@@ -11,6 +11,7 @@ import {
   type CSSProperties,
   type ReactNode,
 } from "react";
+import { t } from "./i18n";
 
 export type QuestionItemView = {
   prompt: string;
@@ -274,13 +275,13 @@ export function QuestionCard({
     return (
       <div className="rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] px-3 py-2">
         <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">
-          Pregunta del agente
+          {t.question.answeredTitle}
         </p>
         <p className="mt-1 text-[length:var(--fs-2)] text-[var(--text-0)]">
           {prompt}
         </p>
         <p className="mt-2 text-[length:var(--fs-1)] text-[var(--ok)]">
-          Respondiste: {answer}
+          {t.question.answeredPrefix}{answer}
         </p>
       </div>
     );
@@ -293,7 +294,7 @@ export function QuestionCard({
       <div className="relative overflow-hidden rounded-[var(--radius-m)] border border-[var(--accent)]/40 bg-[var(--bg-0)] shadow-lg">
         <div className="px-3 pt-3 pb-2">
           <p className="text-[length:var(--fs-1)] font-medium text-[var(--accent)]">
-            El agente necesita tu respuesta
+            {t.question.needsAnswer}
           </p>
           <div
             className="mt-2 overflow-hidden"
@@ -398,8 +399,8 @@ export function QuestionCard({
                               advance();
                             }
                           }}
-                          placeholder="Otra respuesta…"
-                          aria-label="Respuesta personalizada"
+                          placeholder={t.question.customPlaceholder}
+                          aria-label={t.question.customAria}
                           className="min-w-0 flex-1 bg-transparent text-[length:var(--fs-1)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)]"
                         />
                       </label>
@@ -421,7 +422,7 @@ export function QuestionCard({
           <div className="flex items-center gap-1 text-[var(--text-2)]">
             <button
               type="button"
-              aria-label="Pregunta anterior"
+              aria-label={t.question.prevQuestion}
               disabled={qi <= 0 || interactionDisabled}
               onClick={() => goTo(qi - 1)}
               className="flex size-[18px] items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 enabled:hover:text-[var(--text-0)] disabled:opacity-30"
@@ -433,7 +434,7 @@ export function QuestionCard({
             </span>
             <button
               type="button"
-              aria-label="Pregunta siguiente"
+              aria-label={t.question.nextQuestion}
               disabled={last || interactionDisabled}
               onClick={() => goTo(qi + 1)}
               className="flex size-[18px] items-center justify-center rounded-[var(--radius-s)] transition-colors duration-120 enabled:hover:text-[var(--text-0)] disabled:opacity-30"
@@ -446,10 +447,10 @@ export function QuestionCard({
             type="button"
             disabled={!hasAnswer || interactionDisabled}
             onClick={advance}
-            title={last ? "Enviar respuestas (⏎)" : "Siguiente"}
+            title={last ? t.question.sendAnswers : t.common.next}
             className="rounded-[var(--radius-s)] bg-white px-2.5 py-1 text-[length:var(--fs-1)] font-medium text-[var(--bg-0)] transition-colors duration-120 hover:bg-[#e6e6e6] disabled:opacity-40"
           >
-            {last ? "Enviar" : "Continuar"}
+            {last ? t.common.send : t.common.continue}
           </button>
         </div>
       </div>

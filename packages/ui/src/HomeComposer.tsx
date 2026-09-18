@@ -12,17 +12,20 @@ import {
   type ProviderGroupView,
   type ReasoningEffortUi,
 } from "./ModelSelector";
+import { t } from "./i18n";
 
 export type HomePermissionPolicy = "default" | "always";
 
-const PERMISSION_POLICIES: Array<{
-  id: HomePermissionPolicy;
+const PERMISSION_POLICY_IDS = ["default", "always"] as const;
+
+function permissionPolicyMeta(id: HomePermissionPolicy): {
   label: string;
   hint: string;
-}> = [
-  { id: "default", label: "Default", hint: "Pide permiso en cada tool" },
-  { id: "always", label: "Always approved", hint: "Auto-aprueba las tools" },
-];
+} {
+  return id === "always"
+    ? { label: t.permissions.alwaysLabel, hint: t.permissions.alwaysHint }
+    : { label: t.permissions.defaultLabel, hint: t.permissions.defaultHint };
+}
 
 export type HomeComposerProps = {
   creating?: boolean;
@@ -130,9 +133,9 @@ export function HomeComposer({
   const normalized = normalizeProjectName(name.trim() !== "" ? name : derivedName);
   const nameError =
     name.trim() !== "" && normalizeProjectName(name).length === 0
-      ? "Usa letras, números o guiones."
+      ? t.composer.nameErrorChars
       : normalized.length > 0 && !/^[a-z]/.test(normalized)
-        ? "Debe empezar con una letra minúscula."
+        ? t.composer.nameErrorLowercase
         : null;
   const locationOk = parentDir != null && parentDir !== "";
   const canSubmit =
@@ -162,7 +165,7 @@ export function HomeComposer({
         <div className="flex flex-col gap-1.5 border-b border-[var(--line)] px-3 pt-2.5 pb-2">
           <div className="flex items-center justify-between gap-2 text-[length:var(--fs-0)] text-[var(--text-2)]">
             <span className="min-w-0 truncate">
-              {progress.message || "Creando proyecto…"}
+              {progress.message || t.home.creatingProject}
             </span>
             <span className="shrink-0 tabular-nums">{progress.percent}%</span>
           </div>
@@ -187,7 +190,7 @@ export function HomeComposer({
         rows={3}
         value={prompt}
         disabled={creating}
-        placeholder="Describe lo que quieres construir…"
+        placeholder={t.composer.placeholder}
         onChange={(e) => {
           setPrompt(e.target.value);
           autoGrow();
@@ -222,7 +225,7 @@ export function HomeComposer({
             type="button"
             disabled={creating}
             onClick={() => setFolderOpen((v) => !v)}
-            title="Proyecto y ubicación"
+            title={t.composer.projectAndLocation}
             className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] bg-[var(--bg-3)] transition-colors duration-120 hover:text-[var(--text-0)] disabled:opacity-40 ${
               locationOk && normalized.length > 0
                 ? "text-[var(--accent)]"
@@ -239,7 +242,7 @@ export function HomeComposer({
                 >
                   <div
                     role="dialog"
-                    aria-label="Proyecto y ubicación"
+                    aria-label={t.composer.projectAndLocation}
                     onMouseDown={(e) => e.stopPropagation()}
                     className="fixed z-[201] w-72 rounded-[var(--radius-m)] border border-[var(--border-input)] bg-[var(--bg-0)] p-3 shadow-xl"
                     style={{
@@ -249,7 +252,7 @@ export function HomeComposer({
                   >
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[length:var(--fs-1)] text-[var(--text-1)]">
-                    Nombre del proyecto
+                    {t.composer.projectName}
                   </span>
                   <input
                     type="text"
@@ -261,7 +264,7 @@ export function HomeComposer({
                   />
                   {normalized !== "" && name.trim() !== normalized ? (
                     <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-                      Carpeta: {normalized}
+                      {t.composer.folderPrefix(normalized)}
                     </span>
                   ) : null}
                   {nameError ? (
@@ -273,20 +276,20 @@ export function HomeComposer({
 
                 <div className="mt-3 flex flex-col gap-1.5">
                   <span className="text-[length:var(--fs-1)] text-[var(--text-1)]">
-                    Ubicación
+                    {t.composer.location}
                   </span>
                   <div className="flex items-center gap-2">
                     <span
                       className="min-w-0 flex-1 truncate rounded-[var(--radius-s)] bg-[var(--bg-3)] px-2 py-1 font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
                       title={parentDir ?? undefined}
                     >
-                      {parentDir ?? "Elige una carpeta"}
+                      {parentDir ?? t.composer.chooseFolder}
                     </span>
                     <button
                       type="button"
                       disabled={creating}
                       onClick={onPickParentDir}
-                      title="Elegir carpeta"
+                      title={t.composer.chooseFolder}
                       className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] bg-[var(--bg-3)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-2)] hover:text-[var(--text-0)] disabled:opacity-40"
                     >
                       <FolderOpen size={13} strokeWidth={1.75} />
@@ -314,8 +317,8 @@ export function HomeComposer({
             onClick={() => setLockOpen((v) => !v)}
             title={
               permissionPolicy === "always"
-                ? "Permisos: always approved"
-                : "Permisos: default"
+                ? t.permissions.alwaysTitle
+                : t.permissions.defaultTitle
             }
             className={`flex size-6 items-center justify-center rounded-[var(--radius-s)] bg-[var(--bg-3)] transition-colors duration-120 hover:text-[var(--text-0)] ${
               permissionPolicy === "always"
@@ -333,7 +336,7 @@ export function HomeComposer({
                 >
                   <div
                     role="dialog"
-                    aria-label="Permisos"
+                    aria-label={t.permissions.title}
                     onMouseDown={(e) => e.stopPropagation()}
                     className="fixed z-[201] w-48 rounded-[var(--radius-m)] border border-[var(--border-input)] bg-[var(--bg-0)] py-1 shadow-xl"
                     style={{
@@ -341,28 +344,31 @@ export function HomeComposer({
                       bottom: lockMenu.layout.bottom,
                     }}
                   >
-                {PERMISSION_POLICIES.map((m) => (
-                  <button
-                    key={m.id}
-                    type="button"
-                    onClick={() => {
-                      onSetPermissionPolicy(m.id);
-                      setLockOpen(false);
-                    }}
-                    className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
-                      permissionPolicy === m.id
-                        ? "bg-[var(--accent-dim)]"
-                        : "hover:bg-[var(--bg-2)]"
-                    }`}
-                  >
-                    <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
-                      {m.label}
-                    </span>
-                    <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-                      {m.hint}
-                    </span>
-                  </button>
-                ))}
+                {PERMISSION_POLICY_IDS.map((id) => {
+                  const meta = permissionPolicyMeta(id);
+                  return (
+                    <button
+                      key={id}
+                      type="button"
+                      onClick={() => {
+                        onSetPermissionPolicy(id);
+                        setLockOpen(false);
+                      }}
+                      className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
+                        permissionPolicy === id
+                          ? "bg-[var(--accent-dim)]"
+                          : "hover:bg-[var(--bg-2)]"
+                      }`}
+                    >
+                      <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
+                        {meta.label}
+                      </span>
+                      <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
+                        {meta.hint}
+                      </span>
+                    </button>
+                  );
+                })}
                   </div>
                 </div>,
                 document.body,
@@ -374,7 +380,7 @@ export function HomeComposer({
           type="button"
           onClick={submit}
           disabled={!canSubmit}
-          title="Crear proyecto"
+          title={t.composer.createProject}
           className="pointer-events-auto ml-auto flex size-6 shrink-0 items-center justify-center rounded-full bg-white text-[var(--bg-0)] transition-colors duration-120 hover:bg-[#e6e6e6] disabled:opacity-40"
         >
           {creating ? (

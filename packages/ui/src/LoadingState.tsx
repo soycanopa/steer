@@ -3,6 +3,7 @@
 // chevron), Dots (mismas celdas redondas), Orbit (cometa por el perímetro).
 
 import { useEffect, useState } from "react";
+import { t } from "./i18n";
 
 const chevron = Array.from({ length: 9 }, (_, i) => {
   const r = Math.floor(i / 3);
@@ -79,7 +80,7 @@ export type LoadingStateProps = {
 };
 
 export function LoadingState({
-  label = "Pensando…",
+  label = t.loading.thinking,
   variant = "Drive",
   hideElapsed = false,
 }: LoadingStateProps) {

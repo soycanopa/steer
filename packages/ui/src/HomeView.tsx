@@ -2,6 +2,7 @@
 
 import { useState, type ReactNode } from "react";
 import { FolderOpen, Trash2 } from "lucide-react";
+import { t } from "./i18n";
 
 export type RecentProjectView = {
   path: string;
@@ -51,7 +52,7 @@ export function HomeView({
             className="flex items-center gap-1.5 rounded-[var(--radius-m)] bg-[var(--bg-2)] px-3 py-1.5 text-[length:var(--fs-1)] font-medium text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--bg-3)] disabled:opacity-40"
           >
             <FolderOpen size={14} strokeWidth={1.75} aria-hidden />
-            {opening ? "Abriendo…" : "Abrir proyecto"}
+            {opening ? t.home.opening : t.home.openProject}
           </button>
         </header>
 
@@ -68,7 +69,7 @@ export function HomeView({
           {recents.length > 0 ? (
             <section className="flex min-h-0 flex-col">
               <p className="mb-2 shrink-0 font-mono text-[length:var(--fs-0)] tracking-wide text-[var(--text-2)] uppercase">
-                Recientes
+                {t.home.recents}
               </p>
               <ul className="grid min-h-0 auto-rows-max grid-cols-[repeat(auto-fill,minmax(168px,1fr))] gap-3 overflow-y-auto pb-1">
                 {recents.map((project) => (
@@ -126,14 +127,14 @@ function RecentCard({
             // Preview live (solo hover): 5× escalado a la card.
             <iframe
               src={project.previewUrl!}
-              title={`Preview de ${project.name}`}
+              title={t.home.previewOf(project.name)}
               tabIndex={-1}
               className="pointer-events-none absolute top-0 left-0 h-[500%] w-[500%] origin-top-left scale-[0.2] border-0"
             />
           ) : project.thumbnail != null ? (
             <img
               src={project.thumbnail}
-              alt={`Preview de ${project.name}`}
+              alt={t.home.previewOf(project.name)}
               className="size-full object-cover object-top"
               draggable={false}
             />
@@ -153,10 +154,10 @@ function RecentCard({
       {confirming ? (
         <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-2 bg-[var(--bg-0)] px-3 text-center">
           <p className="text-[length:var(--fs-1)] text-[var(--text-1)]">
-            ¿Eliminar “{project.name}”?
+            {t.home.deleteConfirmTitle(project.name)}
           </p>
           <p className="text-[length:var(--fs-0)] text-[var(--text-2)]">
-            Borra su historial en Steer. Los archivos no se tocan.
+            {t.home.deleteConfirmBody}
           </p>
           <div className="flex items-center gap-1.5">
             <button
@@ -164,22 +165,22 @@ function RecentCard({
               onClick={() => setConfirming(false)}
               className="rounded-[var(--radius-s)] px-2.5 py-1 text-[length:var(--fs-1)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-2)]"
             >
-              Cancelar
+              {t.common.cancel}
             </button>
             <button
               type="button"
               onClick={onDelete}
               className="rounded-[var(--radius-s)] bg-[var(--danger)] px-2.5 py-1 text-[length:var(--fs-1)] font-medium text-white transition-colors duration-120 hover:bg-[#e85d5d]"
             >
-              Eliminar
+              {t.common.delete}
             </button>
           </div>
         </div>
       ) : (
         <button
           type="button"
-          title="Eliminar proyecto"
-          aria-label={`Eliminar ${project.name}`}
+          title={t.home.deleteProject}
+          aria-label={t.home.deleteAria(project.name)}
           onClick={(e) => {
             e.stopPropagation();
             setConfirming(true);

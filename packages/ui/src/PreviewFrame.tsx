@@ -17,41 +17,59 @@ import {
 } from "lucide-react";
 import type { PageRouteView } from "./LayersPanel";
 import { PagesMenu } from "./LayersPanel";
+import { t } from "./i18n";
 
 export type PreviewViewportUi = "desktop" | "tablet" | "mobile";
 
 const VIEWPORT_META: Record<
   PreviewViewportUi,
-  { label: string; hint: string; width: number | null; Icon: typeof Monitor }
+  { width: number | null; Icon: typeof Monitor }
 > = {
-  desktop: { label: "Desktop", hint: "Ancho completo", width: null, Icon: Monitor },
-  tablet: { label: "Tablet", hint: "768 px", width: 768, Icon: Tablet },
-  mobile: { label: "Móvil", hint: "390 px", width: 390, Icon: Smartphone },
+  desktop: { width: null, Icon: Monitor },
+  tablet: { width: 768, Icon: Tablet },
+  mobile: { width: 390, Icon: Smartphone },
 };
+
+/** Labels fuera del META: se resuelven en cada render contra el locale. */
+function viewportMeta(key: PreviewViewportUi): { label: string; hint: string } {
+  switch (key) {
+    case "tablet":
+      return { label: t.preview.viewportTablet, hint: "768 px" };
+    case "mobile":
+      return { label: t.preview.viewportMobile, hint: "390 px" };
+    default:
+      return {
+        label: t.preview.viewportDesktop,
+        hint: t.preview.viewportDesktopHint,
+      };
+  }
+}
 
 export type PreviewStatusUi = "idle" | "starting" | "live" | "down";
 export type PreviewModeUi = "interact" | "comment" | "inspect";
 
 const MODE_META: Record<
   PreviewModeUi,
-  { label: string; hint: string; Icon: typeof MousePointer }
+  { Icon: typeof MousePointer }
 > = {
-  interact: {
-    label: "Interactuar",
-    hint: "Click = usar la app (V)",
-    Icon: MousePointer,
-  },
-  comment: {
-    label: "Comentarios",
-    hint: "Click = pin para el agente (C)",
-    Icon: MessageSquarePlus,
-  },
-  inspect: {
-    label: "Inspección",
-    hint: "Click = nodo + tweaks (I)",
-    Icon: SquareDashedMousePointer,
-  },
+  interact: { Icon: MousePointer },
+  comment: { Icon: MessageSquarePlus },
+  inspect: { Icon: SquareDashedMousePointer },
 };
+
+function modeMeta(key: PreviewModeUi): { label: string; hint: string } {
+  switch (key) {
+    case "comment":
+      return { label: t.preview.modeComment, hint: t.preview.modeCommentHint };
+    case "inspect":
+      return { label: t.preview.modeInspect, hint: t.preview.modeInspectHint };
+    default:
+      return {
+        label: t.preview.modeInteract,
+        hint: t.preview.modeInteractHint,
+      };
+  }
+}
 
 export type PreviewFrameProps = {
   url: string | null;
@@ -257,7 +275,7 @@ function AnimatedPanelColumn({
   const handle =
     onResizeStart && visible ? (
       <ResizeHandle
-        title={resizeTitle ?? "Redimensionar"}
+        title={resizeTitle ?? t.preview.resize}
         onMouseDown={onResizeStart}
       />
     ) : null;
@@ -350,7 +368,7 @@ export function PreviewFrame({
           onResizeStart={
             onLayersWidthChange ? layersResize.onDragStart : undefined
           }
-          resizeTitle="Arrastra para redimensionar capas"
+          resizeTitle={t.preview.resizeLayers}
           resizeAfter
           shellRef={layersResize.shellRef}
           contentRef={layersResize.contentRef}
@@ -362,8 +380,8 @@ export function PreviewFrame({
           <div className="mb-2 flex h-8 shrink-0 items-center gap-2">
         <div className="flex h-full shrink-0 items-center gap-0.5">
           {(Object.keys(MODE_META) as PreviewModeUi[]).map((key) => {
-            const meta = MODE_META[key];
-            const Icon = meta.Icon;
+            const meta = modeMeta(key);
+            const Icon = MODE_META[key].Icon;
             return (
               <ToolbarButton
                 key={key}
@@ -379,7 +397,7 @@ export function PreviewFrame({
           {onToggleLayers ? (
             <ToolbarButton
               active={layersOpen}
-              title={layersOpen ? "Ocultar capas" : "Mostrar capas"}
+              title={layersOpen ? t.preview.hideLayers : t.preview.showLayers}
               onClick={onToggleLayers}
             >
               <Layers size={15} strokeWidth={1.75} />
@@ -388,14 +406,14 @@ export function PreviewFrame({
           <ToolbarButton
             onClick={onCapture}
             disabled={!live}
-            title="Cámara — capturar preview al chat"
+            title={t.preview.camera}
           >
             <Camera size={15} strokeWidth={1.75} />
           </ToolbarButton>
           {onToggleChat ? (
             <ToolbarButton
               active={chatOpen}
-              title={chatOpen ? "Ocultar chat" : "Mostrar chat"}
+              title={chatOpen ? t.preview.hideChat : t.preview.showChat}
               onClick={onToggleChat}
             >
               <MessageSquare size={15} strokeWidth={1.75} />
@@ -415,7 +433,7 @@ export function PreviewFrame({
                 type="button"
                 onClick={onReload}
                 disabled={!live}
-                title="Recargar preview"
+                title={t.preview.reload}
                 className="flex size-6 shrink-0 items-center justify-center rounded-[6px] text-[var(--text-2)] transition-colors duration-120 enabled:hover:text-[var(--text-0)] disabled:cursor-default disabled:opacity-40"
               >
                 <RotateCw size={14} strokeWidth={1.75} />
@@ -425,7 +443,7 @@ export function PreviewFrame({
               type="button"
               disabled={!live}
               onClick={() => live && setPagesOpen((v) => !v)}
-              title={`Páginas — ${routeLabel(previewPath)}`}
+              title={t.preview.pagesAria(routeLabel(previewPath))}
               className="ml-2 flex min-w-0 items-center gap-1.5 enabled:cursor-pointer disabled:cursor-default"
             >
               <span className="min-w-0 truncate text-[12.5px] text-[var(--text-1)]">
@@ -447,13 +465,13 @@ export function PreviewFrame({
             <>
               <button
                 type="button"
-                aria-label="Cerrar"
+                aria-label={t.common.close}
                 className="fixed inset-0 z-10 cursor-default"
                 onClick={() => setPagesOpen(false)}
               />
               <div className="absolute top-full left-1/2 z-20 mt-1 w-56 -translate-x-1/2 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
                 <p className="px-3 py-1 font-mono text-[length:var(--fs-0)] tracking-wide text-[var(--text-2)] uppercase">
-                  Páginas
+                  {t.preview.pages}
                 </p>
                 <div className="max-h-64 overflow-y-auto">
                   <PagesMenu
@@ -474,7 +492,7 @@ export function PreviewFrame({
                     className="flex w-full items-center gap-2 border-t border-[var(--line)] px-3 py-2 text-left text-[length:var(--fs-1)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-2)]"
                   >
                     <ExternalLink size={13} strokeWidth={1.75} className="text-[var(--text-2)]" />
-                    Abrir en navegador
+                    {t.preview.openInBrowser}
                   </button>
                 ) : null}
               </div>
@@ -487,7 +505,7 @@ export function PreviewFrame({
             <ToolbarButton
               disabled={!live}
               active={viewport !== "desktop" || viewportOpen}
-              title="Vista del preview"
+              title={t.preview.viewport}
               onClick={() => live && setViewportOpen((v) => !v)}
             >
               <Monitor size={15} strokeWidth={1.75} />
@@ -496,14 +514,14 @@ export function PreviewFrame({
               <>
                 <button
                   type="button"
-                  aria-label="Cerrar"
+                  aria-label={t.common.close}
                   className="fixed inset-0 z-10 cursor-default"
                   onClick={() => setViewportOpen(false)}
                 />
                 <div className="absolute top-full right-0 z-20 mt-1 w-44 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
                   {(Object.keys(VIEWPORT_META) as PreviewViewportUi[]).map((key) => {
-                    const meta = VIEWPORT_META[key];
-                    const Icon = meta.Icon;
+                    const meta = viewportMeta(key);
+                    const Icon = VIEWPORT_META[key].Icon;
                     return (
                       <button
                         key={key}
@@ -554,7 +572,7 @@ export function PreviewFrame({
                 key={iframeKey}
                 ref={onFrameEl}
                 src={url ?? undefined}
-                title="Preview del proyecto"
+                title={t.preview.projectPreview}
                 className="h-full w-full"
               />
             ) : status === "starting" ? (
@@ -576,7 +594,7 @@ export function PreviewFrame({
                     onClick={onDismissMismatch}
                     className="mt-1 text-[length:var(--fs-0)] text-[var(--text-2)] hover:text-[var(--text-0)]"
                   >
-                    Cerrar
+                    {t.common.close}
                   </button>
                 ) : null}
               </div>
@@ -592,7 +610,7 @@ export function PreviewFrame({
           onResizeStart={
             onSidePanelWidthChange ? sideResize.onDragStart : undefined
           }
-          resizeTitle="Arrastra para redimensionar el panel"
+          resizeTitle={t.preview.resizePanel}
           shellRef={sideResize.shellRef}
           contentRef={sideResize.contentRef}
         >
@@ -648,7 +666,7 @@ function PreviewSkeleton() {
     <div className="flex h-full flex-col items-center justify-center gap-3 bg-[var(--bg-1)]">
       <span className="size-4 animate-spin rounded-full border-2 border-[var(--line)] border-t-[var(--accent)]" />
       <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">
-        Arrancando dev server…
+        {t.preview.startingDevServer}
       </p>
     </div>
   );
@@ -664,7 +682,7 @@ function PreviewDown({
   return (
     <div className="flex h-full flex-col items-center justify-center gap-3 bg-[var(--bg-1)] px-6 text-center">
       <p className="text-[length:var(--fs-2)] text-[var(--danger)]">
-        Preview caído.
+        {t.preview.previewDown}
       </p>
       {error ? (
         <pre className="max-h-40 max-w-full overflow-auto whitespace-pre-wrap font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
@@ -676,7 +694,7 @@ function PreviewDown({
         onClick={onRetry}
         className="rounded-[var(--radius-s)] bg-[var(--bg-2)] px-3 py-1 text-[length:var(--fs-1)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
       >
-        Reintentar
+        {t.common.retry}
       </button>
     </div>
   );
@@ -686,7 +704,7 @@ function PreviewIdle() {
   return (
     <div className="flex h-full items-center justify-center bg-[var(--bg-1)]">
       <p className="text-[length:var(--fs-1)] text-[var(--text-2)]">
-        Sin preview.
+        {t.preview.noPreview}
       </p>
     </div>
   );

@@ -4,6 +4,7 @@
 
 import type { ReactNode } from "react";
 import { Statusbar } from "./Statusbar";
+import { t } from "./i18n";
 
 export type AppShellProps = {
   /** Tabs de proyecto alineados con la columna de preview. */
@@ -45,8 +46,11 @@ export function AppShell({
           {projectTabs}
         </div>
         <div className="mb-1 flex shrink-0 items-center gap-2">
-          <StatusPill label={previewStatusLabel(devStatus)} tone={devStatus} />
-          <StatusPill label="Agent" tone={agentStatus} title={agentDetail} />
+          <StatusPill
+            label={previewStatusLabel(devStatus)}
+            tone={devStatus}
+          />
+          <StatusPill label={t.statusbar.agent} tone={agentStatus} title={agentDetail} />
         </div>
       </header>
       <main className="min-h-0 flex-1 bg-[var(--bg-1)] px-1.5 pb-1.5">{children}</main>
@@ -62,9 +66,9 @@ export function AppShell({
 }
 
 function previewStatusLabel(status: "live" | "down" | "idle"): string {
-  if (status === "live") return "Live";
-  if (status === "down") return "Down";
-  return "Idle";
+  if (status === "live") return t.statusbar.live;
+  if (status === "down") return t.statusbar.down;
+  return t.statusbar.idle;
 }
 
 // UI.md §3: pill estado preview (live verde / down rojo) · pill agente.

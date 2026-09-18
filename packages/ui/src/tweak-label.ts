@@ -2,33 +2,15 @@
 // Refresh no se rompa al exportar un helper no-componente del mismo módulo.
 
 import type { TweakProp } from "@steer/domain";
-
-const TWEAK_PROP_LABELS: Partial<Record<TweakProp, string>> = {
-  fontSize: "Tamaño",
-  fontWeight: "Peso",
-  lineHeight: "Interlineado",
-  letterSpacing: "Tracking",
-  color: "Color",
-  backgroundColor: "Fondo",
-  textAlign: "Alineación",
-  width: "Ancho",
-  height: "Alto",
-  padding: "Padding",
-  margin: "Margen",
-  gap: "Gap",
-  flexDirection: "Dirección",
-  flexWrap: "Wrap",
-  justifyContent: "Justify",
-  alignItems: "Align",
-  maxWidth: "Max ancho",
-  objectFit: "Object fit",
-  fontStyle: "Estilo",
-  textDecoration: "Decoración",
-  borderRadius: "Radio",
-  opacity: "Opacidad",
-};
+import { t } from "./i18n";
 
 export function tweakEditLabel(prop: TweakProp, to: string): string {
-  const name = TWEAK_PROP_LABELS[prop] ?? prop;
+  const labels = t.tweaks as Partial<Record<TweakProp, string>>;
+  const name = labels[prop] ?? prop;
+  if (prop === "text") {
+    const compact = to.trim().replace(/\s+/g, " ");
+    const shown = compact.length > 40 ? `${compact.slice(0, 40)}…` : compact;
+    return `${name} · ${shown}`;
+  }
   return `${name} · ${to}`;
 }

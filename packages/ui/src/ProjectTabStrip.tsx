@@ -1,6 +1,7 @@
 // ProjectTabStrip — tabs compactos alineados con la columna de preview.
 
 import { FolderOpen, Home, Plus, X } from "lucide-react";
+import { t } from "./i18n";
 
 export type ProjectTab = {
   path: string;
@@ -33,7 +34,7 @@ export function ProjectTabStrip({
         <button
           type="button"
           onClick={onGoHome}
-          title="Inicio"
+          title={t.tabs.home}
           className={`flex h-[26px] shrink-0 items-center px-2.5 transition-colors duration-120 ${
             homeActive
               ? "steer-home-tab text-[var(--text-0)]"
@@ -56,7 +57,7 @@ export function ProjectTabStrip({
               <button
                 type="button"
                 onClick={() => onSelectTab(tab.path)}
-                title="Volver al proyecto"
+                title={t.tabs.backToProject}
                 className="flex min-w-0 flex-1 items-center gap-1.5 pl-2.5 pr-1 transition-opacity duration-120 hover:opacity-90"
               >
                 <FolderOpen
@@ -73,7 +74,7 @@ export function ProjectTabStrip({
                   e.stopPropagation();
                   onCloseTab(tab.path);
                 }}
-                title="Cerrar proyecto"
+                title={t.tabs.closeProject}
                 className="flex w-6 shrink-0 items-center justify-center pr-1.5 text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
               >
                 <X size={11} strokeWidth={2} aria-hidden />
@@ -84,7 +85,7 @@ export function ProjectTabStrip({
         <button
           type="button"
           onClick={onNewProject}
-          title="Abrir otro proyecto"
+          title={t.tabs.openAnother}
           className="mb-px flex size-[22px] shrink-0 items-center justify-center rounded-[6px] bg-[var(--bg-0)] text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
         >
           <Plus size={12} strokeWidth={2} aria-hidden />

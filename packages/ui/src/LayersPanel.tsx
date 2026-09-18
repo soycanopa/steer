@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
+import { t } from "./i18n";
 
 export type LayerNodeView = {
   id: string;
@@ -62,13 +63,13 @@ export function LayersPanel({
             active={tab === "layers"}
             onClick={() => setTab("layers")}
             icon={Layers}
-            label="Capas"
+            label={t.layers.layers}
           />
           <TabButton
             active={tab === "pages"}
             onClick={() => setTab("pages")}
             icon={FileText}
-            label="Páginas"
+            label={t.layers.pages}
           />
         </div>
       </div>
@@ -128,9 +129,9 @@ export function PagesMenu({
   if (pages.length === 0) {
     return (
       <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
-        No hay rutas en{" "}
+        {t.layers.noRoutesBefore}
         <span className="font-mono text-[length:var(--fs-0)]">src/routes</span>
-        .
+        {t.layers.noRoutesAfter}
       </p>
     );
   }
@@ -178,7 +179,7 @@ function LayersTree({
   if (treeState === "idle") {
     return (
       <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
-        Arranca el preview para ver las capas.
+        {t.layers.idle}
       </p>
     );
   }
@@ -186,7 +187,7 @@ function LayersTree({
   if (treeState === "loading") {
     return (
       <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
-        Cargando capas del preview…
+        {t.layers.loading}
       </p>
     );
   }
@@ -194,9 +195,7 @@ function LayersTree({
   if (nodes.length === 0) {
     return (
       <p className="px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-2)]">
-        {treeState === "empty"
-          ? "No hay capas con source en esta página. Si el preview muestra un error, recárgalo; si no, activa TanStack Devtools."
-          : "Sin capas en esta página."}
+        {treeState === "empty" ? t.layers.emptyNoSource : t.layers.empty}
       </p>
     );
   }
@@ -247,7 +246,7 @@ function LayerRow({
           <button
             type="button"
             onClick={() => onToggle(node.id)}
-            title={isCollapsed ? "Expandir" : "Colapsar"}
+            title={isCollapsed ? t.layers.expand : t.layers.collapse}
             className="flex size-4 shrink-0 items-center justify-center text-[var(--text-2)] transition-colors duration-120 hover:text-[var(--text-0)]"
           >
             {isCollapsed ? (

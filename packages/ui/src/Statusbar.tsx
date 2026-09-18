@@ -1,6 +1,8 @@
 // Statusbar — UI.md §3: 24px con modo, n intents en cola, modelo y
 // atajo de apply.
 
+import { t } from "./i18n";
+
 export type StatusbarMode = "inspect" | "comment" | "interact";
 
 export type StatusbarProps = {
@@ -34,19 +36,17 @@ export function Statusbar({
           {label}
         </span>
         {queueCount > 0 ? (
-          <span>
-            {queueCount} intent{queueCount === 1 ? "" : "s"} en cola
-          </span>
+          <span>{t.statusbar.intentsInQueue(queueCount)}</span>
         ) : null}
         {agentBusy ? (
-          <span className="text-[var(--accent)]">agente…</span>
+          <span className="text-[var(--accent)]">{t.statusbar.agentBusy}</span>
         ) : null}
       </div>
       <div className="flex items-center gap-3">
         <span className="max-w-[220px] truncate">
-          {modelLabel ?? "modelo —"}
+          {modelLabel ?? t.statusbar.noModel}
         </span>
-        <span>⌘Enter aplicar</span>
+        <span>{t.statusbar.applyShortcut}</span>
       </div>
     </footer>
   );
