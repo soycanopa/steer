@@ -16,6 +16,8 @@ import {
   enqueueComment,
   enqueueTweak,
   removeIntent,
+  replaceTodos,
+  TURN_GUIDELINES,
 } from "@steer/domain";
 import type {
   AgentMode,
@@ -260,15 +262,21 @@ type AgentBlockPatch = Partial<{
   text: string;
   reasoning: string;
   tools: TranscriptTool[];
+  segments: string[];
   status: "streaming" | "done" | "error";
 }>;
 
-/** Mutación pura sobre sessions[]: parchea un bloque agent por id. */
+/** Mutación pura sobre sessions[]: parchea un bloque agent por id.
+ * Un patch terminal (done/error) sella finishedAt si no viene. */
 function setAgentBlock(
   store: SteerStore,
   blockId: string,
   patch: AgentBlockPatch,
 ): void {
+  const finishedAt =
+    patch.status === "done" || patch.status === "error"
+      ? Date.now()
+      : undefined;
   store.setState((s) => ({
     sessions: s.sessions.map((sess) =>
       sess.id !== s.activeSessionId
@@ -276,7 +284,9 @@ function setAgentBlock(
         : {
             ...sess,
             blocks: sess.blocks.map((b) =>
-              b.kind === "agent" && b.id === blockId ? { ...b, ...patch } : b,
+              b.kind === "agent" && b.id === blockId
+                ? { ...b, ...patch, ...(finishedAt !== undefined ? { finishedAt } : {}) }
+                : b,
             ),
           },
     ),
@@ -353,6 +363,8 @@ function applyWorkspaceSnapshot(
   const sessions = (snap.intents.sessions ?? []).map((sess) => ({
     ...sess,
     agentAdapterId: sess.agentAdapterId ?? null,
+    // Las tareas son del turno vivo; restauradas del disco serían stales.
+    todos: null,
   }));
   set({
     projectStatus: "open",
@@ -407,7 +419,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
   }> | null = null;
 
   const MISMATCH_TOAST =
-    "el agente terminó; el preview no refleja el tweak — revisa el diff";
+    "the agent finished but the preview does not reflect the tweak — check the diff";
 
   function restoreHeldQueue(): void {
     if (heldForTurn == null) return;
@@ -576,6 +588,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       text: string;
       reasoning: string;
       tools: TranscriptTool[];
+      segments: string[];
       status: "streaming" | "done" | "error";
     }>,
   ): void {
@@ -1107,9 +1120,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         return;
       }
       const existing = findTweak(tweaks, selectedId, scope, prop);
+      const from =
+        prop === "text"
+          ? selection.textPreview
+          : (selection.computed[prop] ?? to);
       const draft: TweakDraft = existing
         ? { ...existing, to }
-        : { steerId: selectedId, scope, selection, prop, from: selection.computed[prop] ?? to, to };
+        : { steerId: selectedId, scope, selection, prop, from, to };
 
       const nextTweaks = existing
         ? tweaks.map((t) => (t === existing ? draft : t))
@@ -1375,8 +1392,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       if (agent === null || selectedModel === null) {
         const reason =
           agent === null
-            ? "Sin AgentPort registrado en composition."
-            : "Elige un modelo antes de aplicar.";
+            ? "No AgentPort registered in composition."
+            : "Pick a model before applying.";
         blocks.push({
           kind: "agent",
           id: crypto.randomUUID(),
@@ -1402,7 +1419,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         text: "",
         reasoning: "",
         tools: [],
+        segments: [],
         status: "streaming",
+        startedAt: Date.now(),
+        finishedAt: null,
       });
 
       agentTurnInFlight = true;
@@ -1434,6 +1454,18 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       const tools: TranscriptTool[] = [];
       let text = "";
       let reasoning = "";
+      // Respuesta por globos: cada retomada tras tool/permiso/pregunta
+      // sella el segmento corriente (chat-like, no un solo globo gigante).
+      let segments: string[] = [];
+      let seg = "";
+      const snapSegments = (): string[] =>
+        seg === "" ? segments : [...segments, seg];
+      const sealSegment = (): void => {
+        if (seg !== "") {
+          segments = [...segments, seg];
+          seg = "";
+        }
+      };
       let liveSessionId: SessionId | null = sessionId;
       let awaitingQuestion = false;
 
@@ -1443,7 +1475,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       let streamFlush: ReturnType<typeof setTimeout> | null = null;
       const flushStream = (): void => {
         streamFlush = null;
-        patchAgentBlock(agentBlockId, { text, reasoning });
+        patchAgentBlock(agentBlockId, {
+          text,
+          reasoning,
+          segments: snapSegments(),
+        });
       };
       const scheduleStreamFlush = (): void => {
         if (streamFlush !== null) return;
@@ -1468,7 +1504,23 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       const flushStreamNow = (): void => {
         if (streamFlush === null) return;
         cancelStreamFlush();
-        patchAgentBlock(agentBlockId, { text, reasoning });
+        patchAgentBlock(agentBlockId, {
+          text,
+          reasoning,
+          segments: snapSegments(),
+        });
+      };
+
+      /** El panel de tareas vive solo durante el turno: en done/error se
+       * limpia y la UI lo oculta. */
+      const clearActiveTodos = (): void => {
+        set((s) => ({
+          sessions: s.sessions.map((sess) =>
+            sess.id !== s.activeSessionId || sess.todos === null
+              ? sess
+              : { ...sess, todos: null },
+          ),
+        }));
       };
 
       const succeed = (): void => {
@@ -1482,6 +1534,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           text,
           reasoning,
           tools: [...tools],
+          segments: snapSegments(),
         });
         heldForTurn = null;
         const remainingQueue = get().queue.filter((i) => !sentIds.has(i.id));
@@ -1510,6 +1563,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           draftNote: "",
           draftAttachments: [],
         });
+        clearActiveTodos();
         const root = get().projectMeta?.root;
         if (root != null) {
           captureCurrentWorkspace(get, (r) => schedulePersistProjectWorkspace(r));
@@ -1522,6 +1576,9 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           void get().recoverPreview();
         }
         void get().refreshProjectRoutes();
+        // El árbol de capas puede quedar stale/vacío tras los edits del
+        // agente (HMR): pedir un re-push del bridge.
+        previewPort.requestTree();
         syncEditPins();
         const expected = payload.intents
           .filter(
@@ -1536,7 +1593,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       };
 
       try {
+        // Pautas del turno primero (tareas vivas, markdown, por partes);
+        // aplica también a turnos de texto puro. domain es la dueña.
         const turnParts = [
+          { type: "text" as const, text: TURN_GUIDELINES },
           ...(payload.intents.length > 0
             ? ([{ type: "intents" as const, payload }] as const)
             : payload.userNote !== undefined
@@ -1548,6 +1608,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             dataBase64: a.dataBase64,
           })),
         ];
+        // El sidecar del adapter puede haber muerto desde el último health.
+        // Revivirlo antes del fetch: si el ensure falla, el catch de abajo
+        // muestra el motivo real en vez de un "Load failed" del webview.
+        if (agent.ensureRuntime != null) {
+          await agent.ensureRuntime(payload.projectRoot);
+        }
         const events = agent.startTurn({
           directory: payload.projectRoot,
           sessionId,
@@ -1589,6 +1655,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               break;
             case "text-delta":
               text += ev.text;
+              seg += ev.text;
               scheduleStreamFlush();
               break;
             case "reasoning-delta":
@@ -1597,6 +1664,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               break;
             case "tool": {
               flushStreamNow();
+              sealSegment();
               upsertTool(tools, {
                 id: ev.id,
                 name: ev.name,
@@ -1606,8 +1674,23 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               patchAgentBlock(agentBlockId, { tools: [...tools] });
               break;
             }
+            case "todo": {
+              const active = get().sessions.find(
+                (s) => s.id === get().activeSessionId,
+              );
+              const todos = replaceTodos(active?.todos ?? null, ev.todos);
+              set((s) => ({
+                sessions: s.sessions.map((sess) =>
+                  sess.id !== s.activeSessionId
+                    ? sess
+                    : { ...sess, todos },
+                ),
+              }));
+              break;
+            }
             case "question": {
               flushStreamNow();
+              sealSegment();
               awaitingQuestion = true;
               const [first] = ev.questions;
               if (first == null) break;
@@ -1655,6 +1738,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
             }
             case "permission": {
               flushStreamNow();
+              sealSegment();
               tools.push({
                 name: ev.summary,
                 status: "start",
@@ -1667,10 +1751,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               ) {
                 patchAgentBlock(agentBlockId, {
                   status: "error",
-                  text: "El agente espera un permiso y no se pudo responder.",
+                  text: "The agent is waiting on a permission and could not answer.",
                 });
                 restoreHeldQueue();
                 set({ agentBusy: false });
+                clearActiveTodos();
                 return;
               }
               try {
@@ -1695,10 +1780,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
                   text:
                     err instanceof Error
                       ? err.message
-                      : "No se pudo aceptar el permiso.",
+                      : "Could not accept the permission.",
                 });
                 restoreHeldQueue();
                 set({ agentBusy: false });
+                clearActiveTodos();
                 return;
               }
               break;
@@ -1721,9 +1807,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               patchAgentBlock(agentBlockId, {
                 status: "error",
                 text: text === "" ? ev.message : `${text}\n\n${ev.message}`,
+                segments: snapSegments(),
               });
               restoreHeldQueue();
               set({ agentBusy: false });
+              clearActiveTodos();
               return;
             default:
               break;
@@ -1737,9 +1825,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         patchAgentBlock(agentBlockId, {
           status: "error",
           text: err instanceof Error ? err.message : String(err),
+          segments: snapSegments(),
         });
         restoreHeldQueue();
         set({ agentBusy: false });
+        clearActiveTodos();
       } finally {
         agentTurnInFlight = false;
         if (!awaitingQuestion && get().agentBusy) {
@@ -1846,7 +1936,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         );
       } catch (err) {
         const message =
-          err instanceof Error ? err.message : "No se pudo enviar la respuesta.";
+          err instanceof Error ? err.message : "Could not send the answer.";
         set((s) => ({
           sessions: s.sessions.map((sess) =>
             sess.id !== s.activeSessionId
@@ -1890,7 +1980,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
     async refreshAgent() {
       if (agents.length === 0) {
-        set({ agentStatus: "down", agentDetail: "sin adapter" });
+        set({ agentStatus: "down", agentDetail: "no adapter" });
         return;
       }
       set({ agentStatus: "checking", agentDetail: null });
@@ -1909,7 +1999,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
           }
           const health = await port.health();
           if (!health.ok) {
-            details.push(`${port.label}: ${health.detail ?? "no responde"}`);
+            details.push(`${port.label}: ${health.detail ?? "not responding"}`);
             continue;
           }
           anyOk = true;
@@ -1933,7 +2023,7 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       if (!anyOk) {
         set({
           agentStatus: "down",
-          agentDetail: details[0] ?? "no responde",
+          agentDetail: details[0] ?? "not responding",
           agentModels: [],
           selectedModel: null,
         });
@@ -2123,11 +2213,11 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     async deleteAgentSession(sessionId) {
       const agent = resolveAgentPort(agents, get().selectedModel);
       if (agent?.deleteSession == null) {
-        throw new Error("El agente no soporta eliminar sesiones.");
+        throw new Error("The agent does not support deleting sessions.");
       }
       const root = get().projectMeta?.root;
       if (root == null || root === "") {
-        throw new Error("No hay proyecto abierto.");
+        throw new Error("No project is open.");
       }
       await agent.deleteSession(sessionId, root);
       set((s) => ({
@@ -2316,10 +2406,13 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
         );
         if (relevant.length === 0) break;
         pendingMismatch = null;
-        const miss = relevant.some(
-          (t) =>
-            !computedMatchesTweak(t.prop, msg.selection.computed[t.prop], t.to),
-        );
+        const miss = relevant.some((t) => {
+          const current =
+            t.prop === "text"
+              ? msg.selection.textPreview
+              : msg.selection.computed[t.prop];
+          return !computedMatchesTweak(t.prop, current, t.to);
+        });
         if (miss) showMismatchToast();
         break;
       }
@@ -2376,8 +2469,8 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       }
       case "steer:capture-error": {
         const text =
-          "No pude capturar el diseño del preview. " +
-          (msg.message ? msg.message : "Recarga e inténtalo de nuevo.");
+          "Couldn't capture the preview design. " +
+          (msg.message ? msg.message : "Reload and try again.");
         store.setState((s) => ({
           sessions: s.sessions.map((sess) =>
             sess.id !== s.activeSessionId

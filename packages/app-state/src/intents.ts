@@ -1,7 +1,7 @@
 // intentsSlice — cola de Intent (TRD §5), sesiones de chat y
 // transcript. La cola es domain puro; este slice solo la guarda y la
 // pasa a los ports.
-import type { ApplyPayload, Intent } from "@steer/domain";
+import type { AgentTodo, ApplyPayload, Intent } from "@steer/domain";
 import type { LayerNode } from "@steer/ports";
 
 export type TranscriptTool = {
@@ -30,6 +30,17 @@ export type TranscriptBlock =
       reasoning: string;
       tools: TranscriptTool[];
       status: "streaming" | "done" | "error";
+      /**
+       * Respuesta partida en globos: cada vez que el agente retoma después
+       * de una herramienta/permiso/pregunta se sella un segmento. `text`
+       * conserva la concatenación completa (compat). Bloques viejos
+       * persistidos no lo traen: la UI cae a [text].
+       */
+      segments?: string[];
+      /** Inicio del turno (ms). Bloques viejos persistidos no lo traen. */
+      startedAt?: number;
+      /** Fin del turno (ms). null mientras hace stream. */
+      finishedAt?: number | null;
     }
   | {
       kind: "question";
@@ -52,6 +63,11 @@ export type ChatSession = {
   agentSessionId: string | null;
   /** AgentPort que emitió `agentSessionId`. Otro adapter no lo reutiliza. */
   agentAdapterId: string | null;
+  /**
+   * Tareas en curso que publicó el agente (AgentEvent `todo`). Solo vive
+   * durante el turno; en done/error se limpia y el panel se oculta.
+   */
+  todos: AgentTodo[] | null;
 };
 
 export function newChatSession(title: string | null = null): ChatSession {
@@ -62,6 +78,7 @@ export function newChatSession(title: string | null = null): ChatSession {
     blocks: [],
     agentSessionId: null,
     agentAdapterId: null,
+    todos: null,
   };
 }
 
