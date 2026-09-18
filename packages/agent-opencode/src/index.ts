@@ -1,7 +1,7 @@
 // Adapter OpenCode — TRD §8. Implementa AgentPort contra `opencode serve`
 // (HTTP+SSE). La UI no importa este package; solo composition.ts.
 
-import { serializeTurn, type ApplyPayload } from "@steer/domain";
+import { isTodoTool, parseTodos, serializeTurn, type ApplyPayload } from "@steer/domain";
 import type {
   AgentEvent,
   AgentPort,
@@ -195,6 +195,13 @@ export function createSsePartTracker() {
     }
     if (sid !== null && sid !== sessionId) return null;
 
+    if (e.type === "todo.updated") {
+      const props = e.properties as { todos?: unknown } | undefined;
+      const todos = parseTodos(props?.todos);
+      if (todos.length === 0) return null;
+      return { type: "todo", todos };
+    }
+
     if (e.type === "message.updated") {
       const props = e.properties as
         | { info?: { id?: unknown; role?: unknown } }
@@ -281,6 +288,15 @@ export function createSsePartTracker() {
       if (part.type === "tool") {
         const toolId = partId ?? undefined;
         const name = typeof part.tool === "string" ? part.tool : "tool";
+        // Fallback del bus: versions sin todo.updated exponen la lista en
+        // el input del tool part todowrite.
+        if (isTodoTool(name)) {
+          const state = part.state as { input?: unknown } | undefined;
+          const input =
+            state?.input ?? (part as { input?: unknown }).input;
+          const todos = parseTodos(input);
+          if (todos.length > 0) return { type: "todo", todos };
+        }
         const status = part.state?.status;
         if (status === "running" || status === "pending") {
           const title = part.state?.title;
