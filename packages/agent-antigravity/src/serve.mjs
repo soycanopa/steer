@@ -8,6 +8,7 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 import readline from "node:readline";
+import { buildAgySessionArgs, workspaceMismatch } from "./agy-args.mjs";
 
 const HOST = "127.0.0.1";
 const CORS = [
@@ -129,21 +130,9 @@ function notLoggedIn(text) {
 }
 
 function startSessionProcess(opts) {
-  const args = [
-    "--input-format",
-    "stream-json",
-    "--output-format",
-    "stream-json",
-    "--dangerously-skip-permissions",
-  ];
-  if (typeof opts.modelId === "string" && opts.modelId !== "") {
-    args.push("--model", opts.modelId);
-  }
-  if (typeof opts.effort === "string" && opts.effort !== "") {
-    args.push("--effort", opts.effort);
-  }
+  const { args, cwd } = buildAgySessionArgs(opts);
   const child = spawn(agyPath(), args, {
-    cwd: opts.cwd,
+    cwd: cwd === "" ? undefined : cwd,
     env: spawnEnv(),
     stdio: ["pipe", "pipe", "pipe"],
   });
@@ -181,12 +170,12 @@ function startSessionProcess(opts) {
 
 function waitForInit(session, timeoutMs = 45_000) {
   return new Promise((resolve, reject) => {
-    const finish = (err, id) => {
+    const finish = (err, info) => {
       clearTimeout(timer);
       off();
       session.child.off("exit", onExit);
       if (err != null) reject(err);
-      else resolve(id);
+      else resolve(info);
     };
     const timer = setTimeout(() => {
       finish(new Error("Antigravity no inicializó la sesión a tiempo"));
@@ -195,7 +184,13 @@ function waitForInit(session, timeoutMs = 45_000) {
       if (ev?.event !== "init") return;
       const id =
         typeof ev.conversation_id === "string" ? ev.conversation_id : "";
-      finish(null, id);
+      const cwd =
+        typeof ev.init?.cwd === "string"
+          ? ev.init.cwd
+          : typeof ev.cwd === "string"
+            ? ev.cwd
+            : "";
+      finish(null, { conversationId: id, cwd });
     });
     const onExit = (code) => {
       finish(new Error(`agy salió al arrancar (code ${code})`));
@@ -282,9 +277,17 @@ const server = http.createServer(async (req, res) => {
         effort: body.effort,
       });
       try {
-        const conversationId = await waitForInit(held);
+        const init = await waitForInit(held);
+        const mismatch = workspaceMismatch(init.cwd, directory);
+        if (mismatch != null) {
+          held.dispose();
+          sendJson(res, 500, { error: mismatch });
+          return;
+        }
         const sessionId =
-          conversationId !== "" ? conversationId : crypto.randomUUID();
+          init.conversationId !== ""
+            ? init.conversationId
+            : crypto.randomUUID();
         sessions.set(sessionId, { ...held, conversationId: sessionId });
         sendJson(res, 200, { sessionId });
       } catch (err) {

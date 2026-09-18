@@ -13,6 +13,18 @@ export function buildPromptText(parts: TurnPart[]): string {
   return texts.filter((t) => t.trim() !== "").join("\n\n");
 }
 
+/** Adapter wrap (TRD §7): no reescribe Intent. Fija PROJECT_ROOT para `agy`. */
+export function wrapSteerWorkspace(directory: string, body: string): string {
+  const root = directory.trim();
+  const inner = body.trim();
+  if (root === "") return inner;
+  return `Estás dentro de Steer. El proyecto abierto es este path absoluto; edita SOLO ese source. No clones, no uses ~, Desktop ni ~/.gemini/antigravity-cli/scratch.
+
+PROJECT_ROOT: ${root}
+
+${inner}`;
+}
+
 /** `agy --effort` is low|medium|high. Steer max maps to high. */
 export function effortFromExtras(
   extras: Record<string, unknown>,

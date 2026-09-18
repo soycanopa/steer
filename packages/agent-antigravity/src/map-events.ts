@@ -1,9 +1,37 @@
 // stream-json de `agy` → AgentEvent.
 
+import { isTodoTool, parseTodos } from "@steer/domain";
 import type { AgentEvent, SessionId } from "@steer/ports";
 
 function textOf(value: unknown): string {
   return typeof value === "string" ? value : "";
+}
+
+const THOUGHT_STEPS = new Set([
+  "thinking",
+  "thought",
+  "reasoning",
+  "planner",
+]);
+
+function isThoughtStep(stepType: string): boolean {
+  return THOUGHT_STEPS.has(stepType);
+}
+
+/** Tool args que publican la lista de tareas (tool_args al arrancar,
+ * tool_info al terminar). null si el tool no es de todos o no trae lista. */
+function todosFromStep(
+  step: Record<string, unknown>,
+  name: string,
+): ReturnType<typeof parseTodos> | null {
+  if (!isTodoTool(name)) return null;
+  for (const key of ["tool_args", "args", "input", "tool_info"]) {
+    if (key in step) {
+      const todos = parseTodos(step[key]);
+      if (todos.length > 0) return todos;
+    }
+  }
+  return null;
 }
 
 function conversationId(ev: Record<string, unknown>): string | undefined {
@@ -49,12 +77,19 @@ export function createAgyEventMapper() {
           : e;
       const stepType = textOf(step.step_type);
       const state = textOf(step.state);
-      const delta = textOf(step.text_delta);
-      if (stepType === "agent_response" && delta !== "") {
-        out.push({ type: "text-delta", text: delta });
+      const thoughtDelta =
+        textOf(step.thought_delta) ||
+        textOf(step.reasoning_delta) ||
+        (isThoughtStep(stepType) ? textOf(step.text_delta) : "");
+      const replyDelta =
+        !isThoughtStep(stepType) && stepType === "agent_response"
+          ? textOf(step.text_delta)
+          : "";
+      if (replyDelta !== "") {
+        out.push({ type: "text-delta", text: replyDelta });
       }
-      if (stepType === "thinking" && delta !== "") {
-        out.push({ type: "reasoning-delta", text: delta });
+      if (thoughtDelta !== "") {
+        out.push({ type: "reasoning-delta", text: thoughtDelta });
       }
       if (stepType === "tool") {
         const name = textOf(step.tool_name) || "tool";
@@ -62,6 +97,8 @@ export function createAgyEventMapper() {
         if (state === "ACTIVE" && !toolSeen.has(id)) {
           toolSeen.add(id);
           out.push({ type: "tool", id, name, status: "start" });
+          const todos = todosFromStep(step, name);
+          if (todos !== null) out.push({ type: "todo", todos });
         }
         if (state === "DONE") {
           out.push({
@@ -74,6 +111,8 @@ export function createAgyEventMapper() {
                 ? JSON.stringify(step.tool_info).slice(0, 400)
                 : undefined,
           });
+          const todos = todosFromStep(step, name);
+          if (todos !== null) out.push({ type: "todo", todos });
         }
       }
       return out;
@@ -103,7 +142,7 @@ export function createAgyEventMapper() {
         message:
           textOf(e.message) !== ""
             ? textOf(e.message)
-            : "Antigravity: el turno falló",
+            : "Antigravity: turn failed",
       });
     }
 

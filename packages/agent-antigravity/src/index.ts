@@ -12,7 +12,7 @@ import { httpGet, httpPost, readSse } from "./client";
 import { createAgyEventMapper } from "./map-events";
 import { ANTIGRAVITY_ID, mapAgyModels, mapAgyModelsOutput } from "./map-models";
 import type { AgyModelListItem } from "./map-models";
-import { buildPromptText, effortFromExtras } from "./prompt";
+import { buildPromptText, effortFromExtras, wrapSteerWorkspace } from "./prompt";
 
 export const AGENT_ANTIGRAVITY_DEFAULT_URL = "http://127.0.0.1:4126";
 export { ANTIGRAVITY_ID, mapAgyModels, mapAgyModelsOutput };
@@ -97,7 +97,10 @@ export function createAntigravityAgent(
       abortController = ac;
       const { signal } = ac;
       return (async function* (): AsyncGenerator<AgentEvent> {
-        const prompt = buildPromptText(req.parts);
+        const prompt = wrapSteerWorkspace(
+          req.directory,
+          buildPromptText(req.parts),
+        );
         const effort = effortFromExtras(req.extras);
         let sessionId: SessionId | null = req.sessionId;
         if (sessionId == null || sessionId === "") {

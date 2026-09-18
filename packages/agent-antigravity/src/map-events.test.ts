@@ -31,11 +31,78 @@ describe("createAgyEventMapper", () => {
     expect(
       map(
         {
+          event: "step_update",
+          step_update: {
+            conversation_id: "c1",
+            step_type: "thinking",
+            state: "ACTIVE",
+            thought_delta: "veo el repo",
+          },
+        },
+        "c1",
+      ),
+    ).toEqual([{ type: "reasoning-delta", text: "veo el repo" }]);
+    expect(
+      map(
+        {
           event: "result",
           result: { conversation_id: "c1", status: "SUCCESS", response: "hola" },
         },
         "c1",
       ),
     ).toEqual([{ type: "done" }]);
+  });
+
+  it("tool step de todos emite tool + todo (args en ACTIVE, tool_info en DONE)", () => {
+    const map = createAgyEventMapper();
+    map({ event: "init", conversation_id: "c1", init: { cwd: "/tmp" } }, null);
+    expect(
+      map(
+        {
+          event: "step_update",
+          step_update: {
+            conversation_id: "c1",
+            step_type: "tool",
+            step_index: "3",
+            state: "ACTIVE",
+            tool_name: "todowrite",
+            tool_args: {
+              todos: [
+                { content: "Explorar", status: "completed" },
+                { content: "Editar", status: "in_progress" },
+              ],
+            },
+          },
+        },
+        "c1",
+      ),
+    ).toEqual([
+      { type: "tool", id: "3-todowrite", name: "todowrite", status: "start" },
+      {
+        type: "todo",
+        todos: [
+          { id: "todo-1", content: "Explorar", status: "completed" },
+          { id: "todo-2", content: "Editar", status: "in_progress" },
+        ],
+      },
+    ]);
+    expect(
+      map(
+        {
+          event: "step_update",
+          step_update: {
+            conversation_id: "c1",
+            step_type: "tool",
+            step_index: "3",
+            state: "DONE",
+            tool_name: "todowrite",
+            tool_info: { updated: 2 },
+          },
+        },
+        "c1",
+      ),
+    ).toEqual([
+      expect.objectContaining({ type: "tool", id: "3-todowrite", status: "end" }),
+    ]);
   });
 });
