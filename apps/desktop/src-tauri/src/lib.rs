@@ -15,6 +15,7 @@ mod project;
 mod proxy;
 mod snapshot;
 mod upstream_probe;
+mod vcs;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -39,6 +40,8 @@ pub fn run() {
             devserver::project_dev_stop,
             devserver::project_preview_url,
             snapshot::window_snapshot,
+            vcs::vcs_branches,
+            vcs::vcs_switch_branch,
             opencode::opencode_ensure,
             cursor::cursor_ensure,
             grok::grok_ensure,
