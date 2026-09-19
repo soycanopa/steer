@@ -74,6 +74,11 @@ const agents: AgentPort[] = [
     async ensureRuntime(directory) {
       const info = await ensureOpencode(directory);
       opencodeAgent.setBaseUrl(info.baseUrl);
+      opencodeAgent.setAuth(
+        info.password != null && info.password !== ""
+          ? { username: "opencode", password: info.password }
+          : null,
+      );
     },
   },
   {

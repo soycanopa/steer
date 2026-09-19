@@ -13,6 +13,7 @@ import type {
   ProjectMeta,
   ProjectPort,
   ProjectRoute,
+  VcsBranches,
 } from "@steer/ports";
 
 type DevStartInfo = { url: string; spawned: boolean };
@@ -21,6 +22,11 @@ type ProxyStartInfo = { proxyUrl: string };
 export function createTauriProjectPort(): ProjectPort {
   return {
     open: (path) => invoke<ProjectMeta>("project_open", { path }),
+
+    vcsBranches: (path) => invoke<VcsBranches>("vcs_branches", { directory: path }),
+
+    vcsSwitchBranch: (path, branch) =>
+      invoke<void>("vcs_switch_branch", { directory: path, branch }),
 
     ensureDevtools: (path) =>
       invoke<ProjectMeta>("project_ensure_devtools", { path }),
