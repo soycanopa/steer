@@ -8,6 +8,8 @@ import { extractStreamText } from "./extract-stream-text";
 export type GrokStreamEvent = {
   type?: unknown;
   data?: unknown;
+  contextTokens?: unknown;
+  contextWindow?: unknown;
   message?: unknown;
   content?: unknown;
   sessionId?: unknown;
@@ -126,6 +128,18 @@ export function createGrokEventMapper() {
         const todos = parseTodos(e.rawOutput);
         if (todos.length > 0) out.push({ type: "todo", todos });
       }
+      return out;
+    }
+
+    if (e.type === "usage") {
+      if (typeof e.contextTokens !== "number" || e.contextTokens <= 0) {
+        return out;
+      }
+      const usageEvent: AgentEvent =
+        typeof e.contextWindow === "number" && e.contextWindow > 0
+          ? { type: "usage", contextTokens: e.contextTokens, contextWindow: e.contextWindow }
+          : { type: "usage", contextTokens: e.contextTokens };
+      out.push(usageEvent);
       return out;
     }
 

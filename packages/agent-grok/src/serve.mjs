@@ -269,6 +269,17 @@ function acpToStream(update) {
       rawInput: update.rawInput,
     };
   }
+  if (kind === "usage_update") {
+    const used = Number(update.used);
+    const size = Number(update.size);
+    if (!Number.isFinite(used) || used <= 0) return null;
+    return {
+      type: "usage",
+      contextTokens: used,
+      ...(Number.isFinite(size) && size > 0 ? { contextWindow: size } : {}),
+    };
+  }
+
   if (kind === "tool_call_update") {
     return {
       type: "tool_call_update",
