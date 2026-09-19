@@ -24,6 +24,12 @@ export type CreateProgress = {
   message: string;
 };
 
+export type VcsBranches = {
+  /** Branch actual; null si el directorio no es un repo git. */
+  current: string | null;
+  branches: string[];
+};
+
 export type ProjectPort = {
   open(path: string): Promise<ProjectMeta>;
   /** Instala y configura @tanstack/devtools-vite si falta (data-tsd-source). */
@@ -43,4 +49,8 @@ export type ProjectPort = {
   /** Apaga solo el proxy del preview; el dev server sigue vivo. */
   detachPreview(): Promise<void>;
   stopDev(path: string): Promise<void>;
+  /** Branch actual + lista local. Opcional: host sin git => current null. */
+  vcsBranches?(path: string): Promise<VcsBranches>;
+  /** Hace switch de branch (git switch). Errores de git suben tal cual. */
+  vcsSwitchBranch?(path: string, branch: string): Promise<void>;
 };
