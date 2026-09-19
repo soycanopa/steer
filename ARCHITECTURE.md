@@ -132,6 +132,7 @@ export type AgentEvent =
    * tool calls todowrite / update_plan de los CLI). Normalizado con
    * domain.parseTodos; el store lo reemplaza y lo limpia en done/error. */
   | { type: "todo"; todos: AgentTodo[] }
+  | { type: "usage"; contextTokens: number }
   | { type: "permission"; permissionId: string; summary: string }
   | { type: "question"; questionId: string; questions: Array<{ prompt: string; header?: string; options?: string[] }> }
   | { type: "done" }
@@ -162,6 +163,10 @@ export type ProjectPort = {
   /** URL viva del dev server (sin spawnear) para previews del home. */
   previewUrl(path: string): Promise<string | null>;
   stopDev(path: string): Promise<void>;
+  /** Branch actual + locales (null = no es repo git). Opcional. */
+  vcsBranches?(path: string): Promise<VcsBranches>;
+  /** git switch; errores de git suben tal cual. Opcional. */
+  vcsSwitchBranch?(path: string, branch: string): Promise<void>;
 };
 
 export type PreviewPort = {

@@ -54,14 +54,19 @@ Command `project_dev_stop` mata el child si Steer lo arrancó. No mata un dev se
 
 ### 4.2 OpenCode server
 
-Command `opencode_ensure { directory }`:
+Command `opencode_ensure { directory }` (server v2):
 
-1. `GET http://127.0.0.1:4096/global/health`.
-2. Si healthy, usar. Scope de directorio: query `directory` o header `X-Opencode-Directory`.
-3. Si no, spawn `opencode serve --port 4096 --hostname 127.0.0.1 --cors <origen-tauri>`.
-4. Esperar health.
+1. Server conocido por Steer (URL + password en estado): `GET /api/info` con Basic auth.
+2. `service.json` del service compartido (`$XDG_STATE_HOME/opencode/service.json`, modo `--service`): `GET {url}/api/info` con Basic auth user `opencode` + password del archivo.
+3. Puertos 4096/4097/4098/4095: `GET /api/info` sin auth (solo entra si el server no pide password).
+4. Si no, spawn `opencode serve --port 4096 --hostname 127.0.0.1 --cors <origen-tauri>` (fallback del binario: `~/.opencode/bin/opencode`). El password se extrae del stdout (`server password …`).
+5. Esperar health (30s).
 
 El renderer nunca llama `opencode` por CLI para chats.
+
+### 4.3 Git del proyecto (vcs.rs)
+
+Commands `vcs_branches { directory }` → `{ current, branches }` (`current: null` si no es repo) y `vcs_switch_branch { directory, branch }` → hace `git switch`. Spawn del CLI git (sin crate). El store los expone como `refreshVcs()` / `switchBranch()` vía `ProjectPort.vcsBranches`/`vcsSwitchBranch` (opcionales); el selector vive bajo el composer del chat y muestra "No branch" fuera de un repo.
 
 ## 5. Contrato Intent
 
@@ -280,28 +285,40 @@ Además, `domain.TURN_GUIDELINES` viaja como primera parte de texto de **todo** 
 
 Implementa `AgentPort` (ARCHITECTURE.md §4). La UI no importa este package.
 
+Target: **OpenCode v2** (`opencode serve`, API experimental bajo `/api/*`, ref oficial `@opencode/client`). v1 (`/global/health`, `/session`, `prompt_async`) quedó obsoleto.
+
 `startTurn` por dentro:
 
-- `ensureRuntime` → health o spawn via `ProcessPort`
-- `POST /session` si no hay `sessionId`
-- `POST /session/:id/prompt_async` con el texto serializado + extras mapeados
-- SSE → `AgentEvent`. El evento de bus `todo.updated` y el input del tool part `todowrite` se mapean a `AgentEvent` `todo` (snapshot normalizado con `domain.parseTodos`)
-- `extras.reasoning.effort` se envía si el schema del server lo acepta; si no, se anexa al texto y `capabilities.reasoning` queda honest
+- `ensureRuntime` → health o spawn (el host v2 descubre: URL conocida → `service.json` del modo `--service` (`$XDG_STATE_HOME/opencode/service.json`, Basic auth user `opencode` + password) → puertos 4096–4098/4095 → spawn propio con `--cors` del webview; el password del server propio se lee de su stdout, línea `server password …`)
+- `POST /api/session` si no hay `sessionId` — body `{ title, location: { directory }, model: { id, providerID, variant? }, agent? }` (el modelo/agent se fijan en la sesión, no en el prompt)
+- Abre `GET /api/event` (SSE) y espera `server.connected`; entonces `POST /api/session/:id/prompt` body `{ text, files?: [{ uri: data-URL, name }] }`
+- SSE → `AgentEvent`: `session.text.delta` / `session.reasoning.delta` (deltas reales), `session.tool.input.started/success/failed` → tool start/end, `permission.asked` → permiso, `form.created` → pregunta (la respuesta va a `POST /api/session/:id/form/:formID/reply` como `{ answer: { key: value } }`)
+- Cierre del turno: `session.execution.succeeded` → `done`, `session.execution.failed` → `error`, `session.execution.interrupted` → `done`. El snapshot `todo` llega por tool calls `todowrite`/similares (`session.tool.called` con `input`, normalizado con `domain.parseTodos`)
+- Contexto ocupado: `session.step.ended` → `AgentEvent { type: "usage", contextTokens }` con `tokens.input + cache.read + cache.write` del último step (gana el último evento); `limit.context` de `GET /api/model` viaja en `ModelRef.capabilities.contextWindow` — el anillo de contexto del chat los consume
+- Contexto por adapter (anillo de contexto, ARCHITECTURE §4):
+  - OpenCode: `session.step.ended` + `limit.context` (descrito arriba).
+  - Cursor (docs/sdk/typescript: "Per-turn usage arrives via the usage stream event, emitted once at turn end"): `SDKUsageMessage { type: "usage", usage: TokenUsage }` por turno → `contextTokens = inputTokens + cacheReadTokens + cacheWriteTokens`. El catálogo `Cursor.models.list()` (`ModelListItem`) no expone ventana de contexto — la doc lo confirma —: el anillo queda oculto hasta tenerla.
+  - Grok (ACP): `sessionUpdate: "usage_update"` estabilizado → `contextTokens = used`, `contextWindow = size` (ACP v1 prompt-turn §session-usage-updates).
+  - Antigravity: el `step_update` de `agent_response` con `state: DONE` trae `usage { input_tokens, cache_read_tokens, … }` **por turno** → `contextTokens = input_tokens + cache_read_tokens`. OJO: `result.usage` es **acumulativo de la sesión** (docs headless + verificado en vivo: turno 2 reporta input 20699 acumulado vs 4298+12202 del step); la ventana no se reporta.
+  - Regla: el anillo se muestra solo con tokens + ventana; nunca se hardcodean ventanas por modelo.
+- `extras.reasoning.effort` viaja como `variant` del `Model.Ref` de la sesión
 
 Endpoints que **solo este adapter** conoce:
 
 | Uso | Método |
 | --- | --- |
-| Health | `GET /global/health` |
-| Providers / models | `GET /config/providers` |
-| Crear sesión | `POST /session` body `{ title }` + `directory` |
-| Enviar | `POST /session/:id/prompt_async` |
-| Eventos | `GET /event` o `GET /global/event` SSE |
-| Abort | `POST /session/:id/abort` (si hay id; el adapter siempre aborta el SSE local) |
-| Diff (P1) | `GET /session/:id/diff` |
-| Permiso (P0) | `POST /session/:id/permissions/:permissionID` body `{ response: "once" \| "always" \| "reject" }` (`always` si política Always approved) |
+| Health | `GET /api/info` → **plano** `{ version, pid, urls, paths }` (sin envoltura `{ data }`; 401 sin Basic auth) |
+| Modelos | `GET /api/model` y default `GET /api/model/default` (envoltura `{ data }`) |
+| Crear sesión | `POST /api/session` body `{ title, location, model?, agent? }` |
+| Enviar | `POST /api/session/:id/prompt` body `{ text, files? }` |
+| Eventos | `GET /api/event` SSE (frames `data:` con el evento completo `{ type, data }`; keepalive `: heartbeat`) |
+| Abort | `POST /api/session/:id/interrupt` (si hay id; el adapter siempre aborta el SSE local) |
+| Permiso (P0) | `POST /api/session/:id/permission/:requestID/reply` body `{ decision: "once" \| "always" \| "reject" }` |
+| Pregunta (P0) | `POST /api/session/:id/form/:formID/reply` body `{ answer }` |
+| Sesiones | `GET /api/session?directory=…&order=desc` · `DELETE /api/session/:id` |
+| Diff (P1) | `GET /api/session/:id/diff` |
 
-Lista de modelos: siempre `GET /config/providers` mapeado a `ModelRef[]`. Nunca hardcodear. El chat solo ve `AgentPort.listModels()`.
+Lista de modelos: siempre `GET /api/model` mapeado a `ModelRef[]`. Nunca hardcodear. El chat solo ve `AgentPort.listModels()`. `reasoning` = el modelo trae variantes `low/high/max`.
 
 ## 8.1 Adapter Cursor (`packages/agent-cursor`)
 
