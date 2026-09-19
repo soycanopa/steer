@@ -15,6 +15,7 @@ export type CursorSdkMessage = {
   text?: unknown;
   message?: { content?: unknown };
   args?: unknown;
+  usage?: unknown;
 };
 
 function splitContent(content: unknown): { text: string; thinking: string } {
@@ -138,6 +139,23 @@ export function createCursorEventMapper() {
       if (isTodoTool(name)) {
         const todos = parseTodos(e.args);
         if (todos.length > 0) out.push({ type: "todo", todos });
+      }
+      return out;
+    }
+
+    if (e.type === "usage" && typeof e.usage === "object" && e.usage !== null) {
+      const usage = e.usage as {
+        inputTokens?: unknown;
+        cacheReadTokens?: unknown;
+        cacheWriteTokens?: unknown;
+      };
+      const num = (v: unknown) => (typeof v === "number" ? v : 0);
+      const total =
+        num(usage.inputTokens) +
+        num(usage.cacheReadTokens) +
+        num(usage.cacheWriteTokens);
+      if (total > 0) {
+        out.push({ type: "usage", contextTokens: total });
       }
       return out;
     }
