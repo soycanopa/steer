@@ -2,17 +2,18 @@
 // stream del agente (Fase F) y composer. Sin imports de adapters.
 
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  Bot,
+  Check,
   ChevronDown,
   ChevronLeft,
-  ChevronUp,
-  History,
+  Copy,
   Lock,
   Pin,
   Plus,
+  Search,
   SendHorizontal,
   SlidersHorizontal,
   Square,
@@ -31,6 +32,10 @@ import { TodoPanel } from "./TodoPanel";
 import { AgentTrace, type AgentTraceRow } from "./AgentTrace";
 import { LoadingState } from "./LoadingState";
 import { t } from "./i18n";
+import { useAnchoredPopover } from "./use-anchored-popover";
+import { MenuContent, MenuItem } from "./menu";
+import { Flowchart, parseFlowchartSpec } from "./Flowchart";
+import { CodeBlock, parseDiffRows } from "./CodeBlock";
 
 export type PermissionPolicyUi = "default" | "always";
 
@@ -144,6 +149,10 @@ export type ChatPanelProps = {
   agentSessions: AgentSessionItemView[];
   /** Tareas que publicó el agente en el turno en curso (null = oculto). */
   todos: AgentTodo[] | null;
+  /** Tokens de contexto ocupados en la sesión (null = sin dato aún). */
+  contextTokens: number | null;
+  /** Ventana de contexto del modelo (null si el provider no la reporta). */
+  contextWindow: number | null;
   onDraftNote(text: string): void;
   onApply(): void;
   onClearQueue(): void;
@@ -184,8 +193,9 @@ export function ChatPanel({
   permissionPolicy,
   agentBusy,
   agentOnline,
-  agentSessions,
   todos,
+  contextTokens,
+  contextWindow,
   onDraftNote,
   onApply,
   onClearQueue,
@@ -195,10 +205,7 @@ export function ChatPanel({
   onSetReasoningEffort,
   onSetModelParam,
   onSetPermissionPolicy,
-  onRefreshAgentSessions,
-  onOpenAgentSession,
   onDeleteLocalSession,
-  onDeleteAgentSession,
   onAbort,
   onRemoveComment,
   onFocusComment,
@@ -247,17 +254,13 @@ export function ChatPanel({
 
   function openSessionsView() {
     setPanelView("sessions");
-    onRefreshAgentSessions();
   }
 
   if (panelView === "sessions") {
     return (
       <SessionsPanel
         sessions={sessions}
-        agentSessions={agentSessions}
-        agentOnline={agentOnline}
         onBack={() => setPanelView("chat")}
-        onRefresh={onRefreshAgentSessions}
         onNewSession={() => {
           onNewSession();
           setPanelView("chat");
@@ -267,37 +270,35 @@ export function ChatPanel({
           setPanelView("chat");
         }}
         onDeleteLocal={onDeleteLocalSession}
-        onOpenAgent={(id, title) => {
-          onOpenAgentSession(id, title);
-          setPanelView("chat");
-        }}
-        onDeleteAgent={onDeleteAgentSession}
       />
     );
   }
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--bg-1)]">
-      <div className="flex h-8 shrink-0 items-center gap-1 px-2">
+      <div className="flex h-8 shrink-0 items-center gap-1.5 px-2">
+        <button
+          type="button"
+          onClick={openSessionsView}
+          title={t.chat.projectSessions}
+          className="flex size-5 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)] hover:text-[var(--text-0)]"
+        >
+          <ChevronLeft size={14} strokeWidth={1.75} />
+        </button>
         <span className="min-w-0 flex-1 truncate text-[length:var(--fs-1)] text-[var(--text-1)]">
           {sessionTitle ?? t.chat.newSession}
         </span>
         <button
           type="button"
-          onClick={openSessionsView}
-          title={t.chat.projectSessions}
-          className="flex size-5 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
-        >
-          <History size={13} strokeWidth={1.75} />
-        </button>
-        <button
-          type="button"
           onClick={onNewSession}
           title={t.chat.newSession}
-          className="flex size-5 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
+          className="flex size-5 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)] hover:text-[var(--text-0)]"
         >
           <Plus size={13} strokeWidth={1.75} />
         </button>
+        {contextTokens != null && contextWindow != null && contextWindow > 0 ? (
+          <ContextRing used={contextTokens} total={contextWindow} />
+        ) : null}
       </div>
 
       <div
@@ -457,6 +458,47 @@ export function ChatPanel({
   );
 }
 
+/** Anillo de contexto: hueco que se llena según tokens usados / ventana
+ *  del modelo. Neutral (gris); warn a >70% y danger a >90%. */
+function ContextRing({ used, total }: { used: number; total: number }) {
+  const pct = Math.min(used / total, 1);
+  const radius = 6.5;
+  const circumference = 2 * Math.PI * radius;
+  const stroke =
+    pct > 0.9
+      ? "var(--danger)"
+      : pct > 0.7
+        ? "var(--warn)"
+        : "var(--text-1)";
+  const fmt = (n: number) =>
+    n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
+  const label = `${fmt(used)} / ${fmt(total)} context`;
+  return (
+    <span title={label} aria-label={label} className="ml-0.5 shrink-0 leading-none">
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 18 18"
+      role="img"
+    >
+      <circle cx="9" cy="9" r={radius} fill="none" stroke="var(--bg-3)" strokeWidth="2" />
+      <circle
+        cx="9"
+        cy="9"
+        r={radius}
+        fill="none"
+        stroke={stroke}
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeDasharray={`${circumference * pct} ${circumference}`}
+        transform="rotate(-90 9 9)"
+        style={{ transition: "stroke-dasharray 400ms ease-out, stroke 200ms ease" }}
+      />
+    </svg>
+    </span>
+  );
+}
+
 /**
  * Ediciones de diseño pendientes (tweaks).
  * Siempre un chip agrupado (no tags sueltos) para no empujar el composer.
@@ -471,6 +513,7 @@ function PendingEdits({
   onRemove(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
+  const menu = useAnchoredPopover(open, 260);
 
   if (edits.length === 0) return null;
 
@@ -479,6 +522,7 @@ function PendingEdits({
   return (
     <div className="relative">
       <button
+        ref={menu.anchorRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1.5 rounded-full border border-[var(--accent)]/40 bg-[var(--accent-dim)] px-2.5 py-1 text-[length:var(--fs-0)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--accent)]/20"
@@ -491,9 +535,18 @@ function PendingEdits({
           className={`text-[var(--text-2)] transition-transform duration-120 ${open ? "" : "-rotate-90"}`}
         />
       </button>
-      {open ? (
-        <div className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-[min(100vw,260px)] min-w-[220px] overflow-y-auto rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-          {edits.map((e) => (
+      {open && menu.style != null
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[200]"
+              onMouseDown={() => setOpen(false)}
+            >
+              <div
+                className="steer-popover fixed z-[201] max-h-56 w-[min(100vw,260px)] min-w-[220px] overflow-y-auto py-1"
+                style={menu.style ?? undefined}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {edits.map((e) => (
             <div
               key={e.id}
               className="group flex items-start gap-1.5 px-2.5 py-1.5 hover:bg-[var(--bg-2)]"
@@ -511,18 +564,21 @@ function PendingEdits({
                   #{e.pin} {e.label}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => onRemove(e.id)}
-                title={t.chat.deleteEdit}
-                className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
-              >
-                <X size={10} strokeWidth={2} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onRemove(e.id)}
+                    title={t.chat.deleteEdit}
+                    className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
+                  >
+                    <X size={10} strokeWidth={2} />
+                  </button>
+                </div>
+                ))}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
@@ -541,6 +597,7 @@ function PendingComments({
   onRemove(id: string): void;
 }) {
   const [open, setOpen] = useState(false);
+  const menu = useAnchoredPopover(open, 260);
 
   if (comments.length === 0) return null;
 
@@ -549,6 +606,7 @@ function PendingComments({
   return (
     <div className="relative">
       <button
+        ref={menu.anchorRef}
         type="button"
         onClick={() => setOpen((v) => !v)}
         className="inline-flex items-center gap-1.5 rounded-full border border-[var(--pin)]/40 bg-[var(--pin)]/12 px-2.5 py-1 text-[length:var(--fs-0)] text-[var(--text-0)] transition-colors duration-120 hover:bg-[var(--pin)]/20"
@@ -561,9 +619,18 @@ function PendingComments({
           className={`text-[var(--text-2)] transition-transform duration-120 ${open ? "" : "-rotate-90"}`}
         />
       </button>
-      {open ? (
-        <div className="absolute bottom-full left-0 z-20 mb-1 max-h-56 w-[min(100vw,260px)] min-w-[220px] overflow-y-auto rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
-          {comments.map((c) => (
+      {open && menu.style != null
+        ? createPortal(
+            <div
+              className="fixed inset-0 z-[200]"
+              onMouseDown={() => setOpen(false)}
+            >
+              <div
+                className="steer-popover fixed z-[201] max-h-56 w-[min(100vw,260px)] min-w-[220px] overflow-y-auto py-1"
+                style={menu.style ?? undefined}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
+                {comments.map((c) => (
             <div
               key={c.id}
               className="group flex items-start gap-1.5 px-2.5 py-1.5 hover:bg-[var(--bg-2)]"
@@ -582,67 +649,51 @@ function PendingComments({
                   {c.body}
                 </span>
               </button>
-              <button
-                type="button"
-                onClick={() => onRemove(c.id)}
-                title={t.common.delete}
-                className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
-              >
-                <X size={10} strokeWidth={2} />
-              </button>
-            </div>
-          ))}
-        </div>
-      ) : null}
+                  <button
+                    type="button"
+                    onClick={() => onRemove(c.id)}
+                    title={t.common.delete}
+                    className="mt-0.5 flex size-4 shrink-0 items-center justify-center rounded-full text-[var(--text-2)] hover:bg-[var(--bg-3)] hover:text-[var(--danger)]"
+                  >
+                    <X size={10} strokeWidth={2} />
+                  </button>
+                </div>
+                ))}
+              </div>
+            </div>,
+            document.body,
+          )
+        : null}
     </div>
   );
 }
 
 function SessionsPanel({
   sessions,
-  agentSessions,
-  agentOnline,
   onBack,
-  onRefresh,
   onNewSession,
   onSelectLocal,
   onDeleteLocal,
-  onOpenAgent,
-  onDeleteAgent,
 }: {
   sessions: SessionView[];
-  agentSessions: AgentSessionItemView[];
-  agentOnline: boolean;
   onBack(): void;
-  onRefresh(): void;
   onNewSession(): void;
   onSelectLocal(id: string): void;
   onDeleteLocal(id: string): void;
-  onOpenAgent(id: string, title?: string): void;
-  onDeleteAgent(id: string): Promise<void>;
 }) {
-  const [deleteError, setDeleteError] = useState<string | null>(null);
-  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
   const localSorted = [...sessions].sort((a, b) => b.createdAt - a.createdAt);
-  const agentSorted = [...agentSessions].sort((a, b) => b.createdAt - a.createdAt);
-
-  async function handleDeleteAgent(id: string) {
-    setDeleteError(null);
-    setDeletingId(id);
-    try {
-      await onDeleteAgent(id);
-    } catch (err) {
-      setDeleteError(
-        err instanceof Error ? err.message : t.sessions.deleteFailed,
-      );
-    } finally {
-      setDeletingId(null);
-    }
-  }
+  const q = query.trim().toLowerCase();
+  const filtered =
+    q === ""
+      ? localSorted
+      : localSorted.filter((s) =>
+          (s.title ?? t.chat.newSession).toLowerCase().includes(q),
+        );
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--bg-1)]">
-      <header className="flex h-8 shrink-0 items-center gap-1 border-b border-[var(--line)] px-2">
+    <div className="relative flex h-full min-h-0 flex-col bg-[var(--bg-1)]">
+      <header className="flex h-8 shrink-0 items-center gap-1 px-2">
         <button
           type="button"
           onClick={onBack}
@@ -656,39 +707,42 @@ function SessionsPanel({
         </h2>
         <button
           type="button"
-          onClick={onRefresh}
-          title={t.sessions.refreshAgent}
-          className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
+          onClick={onNewSession}
+          title={t.sessions.newConversation}
+          className="flex size-6 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)] hover:text-[var(--text-0)]"
         >
-          <ChevronUp size={13} strokeWidth={1.75} />
+          <Plus size={14} strokeWidth={1.75} />
         </button>
       </header>
 
+      <div className="shrink-0 px-3 pb-1">
+        <div className="relative">
+          <Search
+            size={12}
+            strokeWidth={1.75}
+            aria-hidden
+            className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-2)]"
+          />
+          <input
+            type="text"
+            role="searchbox"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder={t.sessions.searchPlaceholder}
+            className="h-8 w-full appearance-none rounded-[var(--radius-s)] bg-[var(--bg-2)] px-2 pl-7 text-[length:var(--fs-1)] text-[var(--text-0)] caret-[var(--accent)] outline-none placeholder:text-[var(--text-2)] focus:bg-[var(--bg-3)]"
+          />
+        </div>
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        {deleteError ? (
-          <p
-            role="alert"
-            className="mb-3 rounded-[var(--radius-s)] bg-[var(--danger)]/10 px-3 py-2 text-[length:var(--fs-1)] text-[var(--danger)]"
-          >
-            {deleteError}
-          </p>
-        ) : null}
-
-        <button
-          type="button"
-          onClick={onNewSession}
-          className="mb-4 flex w-full items-center justify-center gap-1.5 rounded-[var(--radius-m)] border border-dashed border-[var(--line)] bg-[var(--bg-0)] px-3 py-2 text-[length:var(--fs-1)] text-[var(--text-1)] transition-colors duration-120 hover:border-[var(--accent)] hover:text-[var(--text-0)]"
-        >
-          <Plus size={13} strokeWidth={1.75} />
-          {t.sessions.newConversation}
-        </button>
-
         <SessionSection title={t.sessions.localSection}>
           {localSorted.length === 0 ? (
             <EmptySessionsCopy text={t.sessions.emptyLocal} />
+          ) : filtered.length === 0 ? (
+            <EmptySessionsCopy text={t.sessions.noResults} />
           ) : (
             <ul className="flex flex-col gap-1">
-              {localSorted.map((s) => (
+              {filtered.map((s) => (
                 <SessionRow
                   key={s.id}
                   title={s.title ?? t.chat.newSession}
@@ -698,38 +752,22 @@ function SessionsPanel({
                   onOpen={() => onSelectLocal(s.id)}
                   onDelete={() => onDeleteLocal(s.id)}
                   deleteHint={t.sessions.deleteLocalHint}
-                  deleting={deletingId === s.id}
-                />
-              ))}
-            </ul>
-          )}
-        </SessionSection>
-
-        <SessionSection title="OpenCode" className="mt-5">
-          {!agentOnline ? (
-            <EmptySessionsCopy text={t.sessions.agentOffline} />
-          ) : agentSorted.length === 0 ? (
-            <EmptySessionsCopy text={t.sessions.emptyAgent} />
-          ) : (
-            <ul className="flex flex-col gap-1">
-              {agentSorted.map((s) => (
-                <SessionRow
-                  key={s.id}
-                  title={s.title}
-                  meta={s.bound ? t.sessions.active : undefined}
-                  date={s.createdAt}
-                  active={s.bound}
-                  icon={<Bot size={12} strokeWidth={1.75} />}
-                  onOpen={() => onOpenAgent(s.id, s.title)}
-                  onDelete={() => void handleDeleteAgent(s.id)}
-                  deleteHint={t.sessions.deleteAgentHint}
-                  deleting={deletingId === s.id}
                 />
               ))}
             </ul>
           )}
         </SessionSection>
       </div>
+
+      <button
+        type="button"
+        onClick={onNewSession}
+        title={t.sessions.newConversation}
+        aria-label={t.sessions.newConversation}
+        className="absolute right-3 bottom-3 flex size-9 items-center justify-center rounded-full bg-white text-[var(--bg-0)] shadow-[var(--shadow-popover)] transition-colors duration-120 hover:bg-[#e6e6e6]"
+      >
+        <Plus size={16} strokeWidth={2} />
+      </button>
     </div>
   );
 }
@@ -787,7 +825,7 @@ function SessionRow({
   const cardClass = confirming
     ? "border-[var(--danger)]/50 bg-[var(--bg-0)]"
     : active
-      ? "border-[var(--accent)]/40 bg-[var(--accent-dim)]"
+      ? "border-[var(--line)] bg-[var(--bg-3)]"
       : "border-[var(--line)] bg-[var(--bg-0)] hover:bg-[var(--bg-2)]";
 
   return (
@@ -844,7 +882,7 @@ function SessionRow({
           <button
             type="button"
             onClick={onOpen}
-            className="shrink-0 rounded-[var(--radius-s)] px-2 py-1 text-[length:var(--fs-0)] text-[var(--accent)] transition-colors duration-120 hover:bg-[var(--bg-3)]"
+            className="shrink-0 rounded-[var(--radius-s)] px-2 py-1 text-[length:var(--fs-0)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-3)] hover:text-[var(--text-0)]"
           >
             {t.common.open}
           </button>
@@ -966,7 +1004,49 @@ function IntentRowShell({
 const MarkdownBody = memo(function MarkdownBody({ text }: { text: string }) {
   return (
     <div className="steer-markdown text-[length:var(--fs-2)] text-[var(--text-1)] [&_a]:text-[var(--accent)] [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-[var(--line)] [&_blockquote]:pl-3 [&_blockquote]:text-[var(--text-2)] [&_code]:rounded-[var(--radius-s)] [&_code]:bg-[var(--bg-2)] [&_code]:px-1 [&_code]:font-mono [&_code]:text-[length:var(--fs-1)] [&_h1]:mb-2 [&_h1]:text-[length:var(--fs-4)] [&_h1]:font-semibold [&_h2]:mb-1.5 [&_h2]:text-[length:var(--fs-3)] [&_h2]:font-semibold [&_h3]:mb-1 [&_h3]:font-semibold [&_li]:ml-4 [&_ol]:my-1.5 [&_ol]:list-decimal [&_p]:my-1.5 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0 [&_pre]:my-2 [&_pre]:overflow-x-auto [&_pre]:rounded-[var(--radius-s)] [&_pre]:bg-[var(--bg-2)] [&_pre]:p-2 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_strong]:font-semibold [&_ul]:my-1.5 [&_ul]:list-disc">
-      <ReactMarkdown remarkPlugins={[remarkGfm]}>{text}</ReactMarkdown>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          // Bloques ```flowchart: JSON del agente -> canvas interactivo.
+          // JSON roto o invalido cae al bloque de codigo normal.
+          pre({ children }) {
+            const child = Array.isArray(children) ? children[0] : children;
+            const props = (child as { props?: { className?: unknown; children?: unknown } })
+              ?.props;
+            const className =
+              typeof props?.className === "string" ? props.className : "";
+            const lang = /language-([\w-]+)/.exec(className)?.[1] ?? "";
+            const raw = String(props?.children ?? "").replace(/\n$/, "");
+            if (lang === "flowchart") {
+              const spec = parseFlowchartSpec(raw);
+              if (spec != null) return <Flowchart spec={spec} />;
+            }
+            if (lang === "diff") {
+              const parsed = parseDiffRows(raw);
+              if (parsed != null) {
+                return (
+                  <CodeBlock
+                    diff={parsed.rows}
+                    code={raw}
+                    filename={parsed.filename}
+                  />
+                );
+              }
+            }
+            if (raw !== "" && raw.split("\n").length <= 400) {
+              return (
+                <CodeBlock
+                  lines={raw.split("\n")}
+                  filename={lang !== "" ? lang : null}
+                />
+              );
+            }
+            return <pre>{children}</pre>;
+          },
+        }}
+      >
+        {text}
+      </ReactMarkdown>
     </div>
   );
 });
@@ -1085,7 +1165,9 @@ const ToolsSummaryPanel = memo(function ToolsSummaryPanel({
   );
 });
 
-/** Solo la respuesta final del agente va en globo (markdown). */
+/** Solo la respuesta final del agente va en globo (markdown).
+ *  Streaming: caret de bloque al final del texto (estilo StreamingText).
+ *  Asentado: fila de acciones (copiar) con fade-in. */
 const AgentTextBubble = memo(function AgentTextBubble({
   text,
   status,
@@ -1093,17 +1175,47 @@ const AgentTextBubble = memo(function AgentTextBubble({
   text: string;
   status: "streaming" | "done" | "error";
 }) {
+  const [copied, setCopied] = useState(false);
+  const streaming = status === "streaming";
   const border =
     status === "error"
       ? "border-[var(--danger)]"
       : status === "done"
         ? "border-[var(--ok)]/35"
         : "border-[var(--accent)]/45";
+
+  function copy() {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1400);
+    });
+  }
+
   return (
     <div
       className={`w-fit max-w-full rounded-[var(--radius-m)] border ${border} bg-[var(--bg-0)] px-3 py-2`}
     >
-      <MarkdownBody text={text} />
+      <MarkdownBody text={streaming ? `${text}\u258d` : text} />
+      {status === "done" ? (
+        <div
+          className="mt-1.5 flex items-center gap-0.5 transition-opacity duration-300"
+          style={{ animation: "fade-in 300ms ease-out both" }}
+        >
+          <button
+            type="button"
+            onClick={copy}
+            title={copied ? t.chat.copied : t.chat.copy}
+            aria-label={copied ? t.chat.copied : t.chat.copy}
+            className="flex size-6 items-center justify-center rounded-[6px] text-[var(--text-2)] transition-colors duration-100 hover:bg-[var(--bg-3)] hover:text-[var(--text-1)]"
+          >
+            {copied ? (
+              <Check size={13} strokeWidth={2} className="text-[var(--ok)]" />
+            ) : (
+              <Copy size={13} strokeWidth={1.75} />
+            )}
+          </button>
+        </div>
+      ) : null}
     </div>
   );
 });
@@ -1230,6 +1342,7 @@ function Composer({
 }) {
   const ref = useRef<HTMLTextAreaElement>(null);
   const [modeOpen, setModeOpen] = useState(false);
+  const lockMenu = useAnchoredPopover(modeOpen, 192, "right");
 
   useEffect(() => {
     if (value === "") {
@@ -1248,7 +1361,7 @@ function Composer({
 
   return (
     <div
-      className="relative rounded-[var(--radius-input)] border-2 border-[var(--line)] bg-[var(--bg-0)] focus-within:border-[var(--accent)]"
+      className="relative overflow-hidden rounded-[var(--radius-input)] border-2 border-[var(--line)] bg-[var(--bg-0)] focus-within:border-[var(--accent)]"
       style={{ boxShadow: "var(--shadow-input)" }}
     >
       {attachments.length > 0 ? (
@@ -1295,6 +1408,13 @@ function Composer({
         className="max-h-[140px] min-h-[96px] w-full resize-none rounded-t-[var(--radius-m)] bg-transparent px-3 pt-2.5 pb-10 text-[length:var(--fs-2)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)]"
       />
 
+      {/* Fundido: el texto que scrollea bajo los controles se desvanece
+          en vez de cortarse feo (el overlay de controles va encima). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-2 bottom-0 h-10"
+        style={{ background: "linear-gradient(to top, var(--bg-0) 35%, transparent)" }}
+      />
       {/* Controles: modelo, luego candado de permisos, enviar. */}
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 px-2 pb-2">
         <ModelSelector
@@ -1312,6 +1432,7 @@ function Composer({
 
         <div className="relative pointer-events-auto">
           <button
+            ref={lockMenu.anchorRef}
             type="button"
             onClick={() => setModeOpen((v) => !v)}
             title={
@@ -1327,42 +1448,36 @@ function Composer({
           >
             <Lock size={12} strokeWidth={1.75} />
           </button>
-          {modeOpen ? (
-            <>
-              <button
-                type="button"
-                aria-label={t.common.close}
-                className="fixed inset-0 z-10 cursor-default"
-                onClick={() => setModeOpen(false)}
-              />
-              <div className="absolute right-0 bottom-full z-20 mb-1 w-48 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+          {modeOpen && lockMenu.style != null ? (
+            createPortal(
+              <div
+                className="fixed inset-0 z-[200]"
+                onMouseDown={() => setModeOpen(false)}
+              >
+              <MenuContent
+                className="fixed w-56"
+                style={lockMenu.style ?? undefined}
+                onMouseDown={(e) => e.stopPropagation()}
+              >
                 {PERMISSION_POLICY_IDS.map((id) => {
                   const meta = permissionPolicyMeta(id);
                   return (
-                    <button
+                    <MenuItem
                       key={id}
-                      type="button"
+                      selected={permissionPolicy === id}
+                      label={meta.label}
+                      hint={meta.hint}
                       onClick={() => {
                         onSetPermissionPolicy(id);
                         setModeOpen(false);
                       }}
-                      className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
-                        permissionPolicy === id
-                          ? "bg-[var(--accent-dim)]"
-                          : "hover:bg-[var(--bg-2)]"
-                      }`}
-                    >
-                      <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
-                        {meta.label}
-                      </span>
-                      <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-                        {meta.hint}
-                      </span>
-                    </button>
+                    />
                   );
                 })}
-              </div>
-            </>
+              </MenuContent>
+              </div>,
+              document.body,
+            )
           ) : null}
         </div>
 

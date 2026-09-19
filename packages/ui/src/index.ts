@@ -60,5 +60,7 @@ export type {
 export { SplitPane } from "./SplitPane";
 export { Statusbar } from "./Statusbar";
 export type { StatusbarMode, StatusbarProps } from "./Statusbar";
+export { Flowchart, parseFlowchartSpec } from "./Flowchart";
+export type { FlowchartSpec, FlowNode, FlowConditionRow } from "./Flowchart";
 export { setLocale, getLocale, t } from "./i18n";
 export type { Dictionary, Locale } from "./i18n";

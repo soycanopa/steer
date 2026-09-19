@@ -113,6 +113,7 @@ export const en = {
   inspector: {
     closeInspector: "Close inspector",
     climbToHost: "Go up to the component host",
+    moreSegments: "Hidden segments",
     size: "Size",
     layout: "Layout",
     typography: "Typography",
@@ -177,6 +178,10 @@ export const en = {
   },
   chat: {
     newSession: "New session",
+    copy: "Copy",
+    copied: "Copied",
+    noBranch: "No branch",
+    branches: "Branches",
     projectSessions: "Project sessions",
     emptyTranscript:
       "Drop comments on the preview or write a note; sending goes to the agent.",
@@ -221,6 +226,8 @@ export const en = {
     emptyLocal: "No conversations yet.",
     nMessages: (n: number) => `${n} message${n === 1 ? "" : "s"}`,
     deleteLocalHint: "History will be lost.",
+    searchPlaceholder: "Search sessions…",
+    noResults: "No sessions match your search.",
     agentOffline:
       "OpenCode is not responding. Start opencode serve to see project sessions.",
     emptyAgent: "No OpenCode sessions for this project.",
