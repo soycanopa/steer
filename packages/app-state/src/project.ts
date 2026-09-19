@@ -1,4 +1,4 @@
-import type { ProjectMeta, ProjectRoute } from "@steer/ports";
+import type { ProjectMeta, ProjectRoute, VcsBranches } from "@steer/ports";
 
 // projectSlice → ProjectPort (ARCHITECTURE §9). Habla con el puerto,
 // no con una implementación.
@@ -26,4 +26,8 @@ export type ProjectSlice = {
   recentPreviewUrls: Record<string, string>;
   /** Progreso del scaffold TanStack Start (null si no está creando). */
   createProgress: CreateProgressState | null;
+  /** Branch actual + locales (null si el proyecto no es repo git). */
+  vcs: VcsBranches | null;
+  /** Último error de switch de branch (se limpia en el próximo refresh). */
+  vcsError: string | null;
 };

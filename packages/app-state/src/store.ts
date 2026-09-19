@@ -211,6 +211,14 @@ export type SteerState = ProjectSlice &
     /** Historial: crear sesión nueva y activarla. */
     newSession(): void;
     selectSession(id: string): void;
+    /** Tokens de contexto ocupados en la sesión activa (evento usage). */
+    contextTokens: number | null;
+    /** Ventana de contexto reportada por el provider (usage_update). */
+    contextWindow: number | null;
+    /** Branch actual + locales del proyecto abierto (vía ProjectPort). */
+    refreshVcs(): Promise<void>;
+    /** Switch de branch; errores de git quedan en vcsError. */
+    switchBranch(branch: string): Promise<void>;
   };
 
 export type SteerStore = ReturnType<typeof createAppStore>;
@@ -610,6 +618,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     projectThumbnails: {},
     recentPreviewUrls: {},
     createProgress: null,
+    vcs: null,
+    vcsError: null,
+    contextTokens: null,
+    contextWindow: null,
     ...initialPreviewSlice,
     ...initialSelectionSlice,
     ...initialIntents(),
@@ -641,8 +653,10 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
 
         void (async () => {
           await get().refreshAgent();
+          // El service de OpenCode puede aparecer después de Steer (el CLI
+          // lo registra al primer uso): reintenta con ventana amplia.
           if (get().agentStatus === "down") {
-            for (const ms of [1200, 2400]) {
+            for (const ms of [1200, 2400, 5000, 10000, 15000]) {
               await new Promise((r) => setTimeout(r, ms));
               await get().refreshAgent();
               if (get().agentStatus === "up") break;
@@ -1674,6 +1688,14 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
               patchAgentBlock(agentBlockId, { tools: [...tools] });
               break;
             }
+            case "usage":
+              set({
+                contextTokens: ev.contextTokens,
+                ...(ev.contextWindow != null
+                  ? { contextWindow: ev.contextWindow }
+                  : {}),
+              });
+              break;
             case "todo": {
               const active = get().sessions.find(
                 (s) => s.id === get().activeSessionId,
@@ -2136,6 +2158,34 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
       set({ permissionPolicy: policy });
     },
 
+    async refreshVcs() {
+      const root = get().projectMeta?.root;
+      if (projectPort.vcsBranches == null || root == null || root === "") {
+        set({ vcs: null });
+        return;
+      }
+      try {
+        set({ vcs: await projectPort.vcsBranches(root), vcsError: null });
+      } catch {
+        set({ vcs: null });
+      }
+    },
+
+    async switchBranch(branch) {
+      const root = get().projectMeta?.root;
+      if (projectPort.vcsSwitchBranch == null || root == null || root === "") {
+        return;
+      }
+      try {
+        await projectPort.vcsSwitchBranch(root, branch);
+        await get().refreshVcs();
+      } catch (err) {
+        set({
+          vcsError: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+
     async refreshAgentSessions() {
       const agent = resolveAgentPort(agents, get().selectedModel);
       if (agent?.listSessions == null) {
@@ -2301,7 +2351,12 @@ export function createAppStore({ projectPort, previewPort, prefs, agents }: AppD
     },
 
     selectSession(id) {
-      set((s) => ({ activeSessionId: id, chatOpen: true }));
+      set((s) => ({
+        activeSessionId: id,
+        chatOpen: true,
+        contextTokens: null,
+        contextWindow: null,
+      }));
     },
   }));
 
