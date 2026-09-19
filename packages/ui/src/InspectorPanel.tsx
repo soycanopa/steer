@@ -2,7 +2,8 @@
 // Layout / Typography / Styles). Padding+margin anidados tipo Webflow.
 // Recibe datos y callbacks; no conoce stores ni adapters.
 
-import { useState, type ReactNode } from "react";
+import { Fragment, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import {
   AlignCenter,
   AlignJustify,
@@ -17,6 +18,7 @@ import {
   Plus,
   RotateCcw,
   Square,
+  MoreHorizontal,
   StretchHorizontal,
   Underline,
   WrapText,
@@ -40,6 +42,7 @@ import {
   weightValue,
 } from "@steer/domain";
 import { t } from "./i18n";
+import { useAnchoredPopover } from "./use-anchored-popover";
 
 const DEVTOOLS_SNIPPET = `import { devtools } from "@tanstack/devtools-vite";
 
@@ -91,45 +94,12 @@ export function InspectorPanel({
     <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto bg-[var(--bg-1)] px-3 py-3">
       <header className="flex items-start gap-2">
         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <p className="flex min-w-0 items-center text-[13px] text-[var(--text-1)]">
-          {(selection.breadcrumb.length ? selection.breadcrumb : [selection.tag]).map(
-            (part, i, parts) => {
-              const last = i === parts.length - 1;
-              const climb = !last && onSelectAncestor != null;
-              return (
-              <span key={`${part}-${i}`} className="flex min-w-0 items-center">
-                {i > 0 ? (
-                  <ChevronRight
-                    size={12}
-                    strokeWidth={1.75}
-                    className="mx-0.5 shrink-0 text-[var(--text-2)]"
-                  />
-                ) : null}
-                {climb ? (
-                  <button
-                    type="button"
-                    title={t.inspector.climbToHost}
-                    onClick={onSelectAncestor}
-                    className="truncate hover:text-[var(--text-0)] hover:underline"
-                  >
-                    {part}
-                  </button>
-                ) : (
-                <span
-                  className={
-                    last
-                      ? "truncate text-[var(--text-0)]"
-                      : "truncate"
-                  }
-                >
-                  {part}
-                </span>
-                )}
-              </span>
-              );
-            },
-          )}
-        </p>
+        <InspectorBreadcrumb
+          parts={
+            selection.breadcrumb.length ? selection.breadcrumb : [selection.tag]
+          }
+          onClimb={onSelectAncestor}
+        />
         {selection.source.file === "" ? (
           <MissingSourceBanner />
         ) : null}
@@ -710,6 +680,162 @@ function AlignItemsBar({ value, onSet }: { value: string; onSet(v: string): void
         </button>
       ))}
     </IconGroup>
+  );
+}
+
+/**
+ * Breadcrumb estilo shadcn: links muted con hover underline, separadores
+ * chevron, item activo destacado y —cuando hay más de 3 segmentos— los
+ * medios colapsan en un "…" con menú (portal, como el resto de popovers).
+ * Click en un segmento medio = subir al host (onClimb).
+ */
+function InspectorBreadcrumb({
+  parts,
+  onClimb,
+}: {
+  parts: string[];
+  onClimb?: () => void;
+}) {
+  const [menuOpen, setMenuOpen] = useState(false);
+  const collapsed = parts.length > 3;
+  const hidden = collapsed ? parts.slice(1, -1) : [];
+  const menu = useAnchoredPopover(menuOpen, 220, "left", "below");
+
+  const rowKey = (part: string | null, i: number) => `${part ?? "…"}-${i}`;
+
+  return (
+    <nav aria-label="breadcrumb" className="flex min-w-0 items-center text-[13px]">
+      <ol className="flex min-w-0 items-center gap-0.5">
+        {parts.map((part, i) => {
+          const last = i === parts.length - 1;
+          const collapseHere = collapsed && i === 1;
+          const renderPart = collapsed && i >= 1 && i < parts.length - 1;
+
+          const separator = i > 0 ? (
+            <li key={`sep-${i}`} aria-hidden>
+              <ChevronRight
+                size={12}
+                strokeWidth={1.75}
+                className="shrink-0 text-[var(--text-2)]"
+              />
+            </li>
+          ) : null;
+
+          if (collapseHere) {
+            return (
+              <CollapsedSegments
+                key={rowKey(part, i)}
+                separator={separator}
+                segments={hidden}
+                open={menuOpen}
+                menu={menu}
+                onToggle={() => setMenuOpen((v) => !v)}
+                onClose={() => setMenuOpen(false)}
+                onPick={onClimb}
+              />
+            );
+          }
+          if (renderPart) return null;
+
+          const climbable = !last && onClimb != null;
+          return (
+            <Fragment key={rowKey(part, i)}>
+              {separator}
+              <li className="flex min-w-0 items-center">
+                {climbable ? (
+                  <button
+                    type="button"
+                    title={t.inspector.climbToHost}
+                    onClick={onClimb}
+                    className="truncate text-[var(--text-1)] transition-colors duration-120 hover:text-[var(--text-0)] hover:underline"
+                  >
+                    {part}
+                  </button>
+                ) : (
+                  <span
+                    aria-current={last ? "page" : undefined}
+                    className={`truncate ${
+                      last
+                        ? "font-medium text-[var(--text-0)]"
+                        : "text-[var(--text-1)]"
+                    }`}
+                  >
+                    {part}
+                  </span>
+                )}
+              </li>
+            </Fragment>
+          );
+        })}
+      </ol>
+    </nav>
+  );
+}
+
+/** "…" con menú de los segmentos ocultos (shadcn: BreadcrumbEllipsis). */
+function CollapsedSegments({
+  separator,
+  segments,
+  open,
+  menu,
+  onToggle,
+  onClose,
+  onPick,
+}: {
+  separator: ReactNode;
+  segments: string[];
+  open: boolean;
+  menu: ReturnType<typeof useAnchoredPopover>;
+  onToggle(): void;
+  onClose(): void;
+  onPick?(): void;
+}) {
+  return (
+    <>
+      {separator}
+      <li className="flex items-center">
+        <button
+          ref={menu.anchorRef}
+          type="button"
+          aria-label={t.inspector.moreSegments}
+          aria-expanded={open}
+          onClick={onToggle}
+          className="flex size-5 shrink-0 items-center justify-center rounded-[var(--radius-s)] text-[var(--text-2)] transition-colors duration-120 hover:bg-[var(--bg-3)] hover:text-[var(--text-0)]"
+        >
+          <MoreHorizontal size={14} strokeWidth={1.75} />
+        </button>
+        {open && menu.style != null
+          ? createPortal(
+              <div
+                className="fixed inset-0 z-[200]"
+                onMouseDown={onClose}
+              >
+                <div
+                  className="steer-popover fixed z-[201] w-[220px] py-1"
+                  style={menu.style ?? undefined}
+                  onMouseDown={(e) => e.stopPropagation()}
+                >
+                  {segments.map((segment, i) => (
+                    <button
+                      key={`${segment}-${i}`}
+                      type="button"
+                      title={t.inspector.climbToHost}
+                      onClick={() => {
+                        onPick?.();
+                        onClose();
+                      }}
+                      className="w-full truncate px-2.5 py-1 text-left text-[length:var(--fs-1)] text-[var(--text-1)] transition-colors duration-120 hover:bg-[var(--bg-2)] hover:text-[var(--text-0)]"
+                    >
+                      {segment}
+                    </button>
+                  ))}
+                </div>
+              </div>,
+              document.body,
+            )
+          : null}
+      </li>
+    </>
   );
 }
 
