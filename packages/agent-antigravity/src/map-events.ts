@@ -85,6 +85,21 @@ export function createAgyEventMapper() {
         !isThoughtStep(stepType) && stepType === "agent_response"
           ? textOf(step.text_delta)
           : "";
+      // Usage POR-TURNO: step agent_response DONE = prompt real del turno
+      // (input nuevos + cache leída). result.usage es acumulativo: no sirve
+      // para el anillo de contexto (docs headless + verificado en vivo).
+      if (state === "DONE" && stepType === "agent_response") {
+        const usage =
+          typeof step.usage === "object" && step.usage !== null
+            ? (step.usage as Record<string, unknown>)
+            : null;
+        const num = (v: unknown) => (typeof v === "number" ? v : 0);
+        const contextTokens =
+          num(usage?.input_tokens) + num(usage?.cache_read_tokens);
+        if (contextTokens > 0) {
+          out.push({ type: "usage", contextTokens });
+        }
+      }
       if (replyDelta !== "") {
         out.push({ type: "text-delta", text: replyDelta });
       }
@@ -132,6 +147,8 @@ export function createAgyEventMapper() {
         out.push({ type: "error", message });
         return out;
       }
+      // result.usage es ACUMULATIVO de la sesión (docs headless §streaming):
+      // el contexto real del turno viene por step_update (ver abajo).
       out.push({ type: "done" });
       return out;
     }
