@@ -15,9 +15,15 @@ export type AppShellProps = {
   agentStatus: "live" | "down" | "idle";
   agentDetail?: string | null;
   agentBusy?: boolean;
-  modelLabel?: string | null;
   mode: "inspect" | "comment" | "interact";
   queueCount: number;
+  /** Branch actual; null si el proyecto no es repo git. */
+  branch?: string | null;
+  branches?: string[];
+  vcsError?: string | null;
+  /** Ámbito del proyecto: "local" hoy; "remote" reservado. */
+  projectScope?: "local" | "remote" | null;
+  onSelectBranch?(branch: string): void;
   children: ReactNode;
 };
 
@@ -27,14 +33,18 @@ export function AppShell({
   agentStatus,
   agentDetail = null,
   agentBusy = false,
-  modelLabel = null,
   mode,
   queueCount,
+  branch = null,
+  branches = [],
+  vcsError = null,
+  projectScope = null,
+  onSelectBranch,
   children,
 }: AppShellProps) {
   return (
     <div
-      className="flex h-full flex-col bg-[var(--bg-0)] text-[var(--text-0)]"
+      className="flex h-full flex-col bg-[var(--bg-0)] pb-1.5 text-[var(--text-0)]"
       style={{ fontFamily: "var(--font-ui)" }}
     >
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
@@ -45,20 +55,24 @@ export function AppShell({
         <div className="flex min-h-0 min-w-0 flex-1 items-end gap-1 pl-[84px]">
           {projectTabs}
         </div>
-        <div className="mb-1 flex shrink-0 items-center gap-2">
-          <StatusPill
+        <div className="flex shrink-0 items-center gap-2 self-center">
+          <StatusBadge
             label={previewStatusLabel(devStatus)}
             tone={devStatus}
           />
-          <StatusPill label={t.statusbar.agent} tone={agentStatus} title={agentDetail} />
+          <StatusBadge label={t.statusbar.agent} tone={agentStatus} title={agentDetail} />
         </div>
       </header>
       <main className="min-h-0 flex-1 bg-[var(--bg-1)] px-1.5 pb-1.5">{children}</main>
       <Statusbar
         mode={mode}
         queueCount={queueCount}
-        modelLabel={modelLabel}
         agentBusy={agentBusy}
+        branch={branch}
+        branches={branches}
+        vcsError={vcsError}
+        projectScope={projectScope}
+        onSelectBranch={(name) => onSelectBranch?.(name)}
       />
       </div>
     </div>
@@ -71,32 +85,29 @@ function previewStatusLabel(status: "live" | "down" | "idle"): string {
   return t.statusbar.idle;
 }
 
-// UI.md §3: pill estado preview (live verde / down rojo) · pill agente.
-function StatusPill({
+// UI.md §3: badge de estado — live verde, down rojo, idle gris. El color
+// del estado tiñe toda la badge (tinte + texto), no solo un punto.
+function StatusBadge({
   label,
-  value,
   tone,
   title,
 }: {
   label: string;
-  value?: string;
   tone: "live" | "down" | "idle";
   title?: string | null;
 }) {
-  const dot =
+  const tint =
     tone === "live"
-      ? "bg-[var(--ok)]"
+      ? "border-[var(--ok)]/30 bg-[var(--ok)]/15 text-[var(--ok)]"
       : tone === "down"
-        ? "bg-[var(--danger)]"
-        : "bg-[var(--text-2)]";
+        ? "border-[var(--danger)]/30 bg-[var(--danger)]/15 text-[var(--danger)]"
+        : "border-transparent bg-[var(--bg-2)] text-[var(--text-2)]";
   return (
     <span
       title={title ?? undefined}
-      className="flex items-center gap-1.5 rounded-full bg-[var(--bg-2)] px-2 py-0.5 font-mono text-[length:var(--fs-0)] text-[var(--text-1)]"
+      className={`flex items-center gap-1 rounded-full border px-1.5 font-mono text-[10px] uppercase leading-[14px] tracking-wide ${tint}`}
     >
-      <span className={`size-1.5 rounded-full ${dot}`} aria-hidden />
       {label}
-      {value != null && value !== "" ? ` · ${value}` : null}
     </span>
   );
 }
