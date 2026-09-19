@@ -31,6 +31,8 @@ export type ModelRef = {
     reasoningVariants?: ("low" | "high" | "max")[];
     images: boolean;
     tools: boolean;
+    /** Ventana de contexto del modelo en tokens (si el provider la reporta). */
+    contextWindow?: number;
     /**
      * Knobs del catálogo del provider (Cursor: `fast`, `optimize_for`…).
      * La UI no inventa ids; solo pinta lo que listModels() trajo.
@@ -66,6 +68,14 @@ export type AgentEvent =
   /** Snapshot completo de la lista de tareas del agente (todo.updated,
    * todowrite…). El adapter ya la normalizó con domain.parseTodos. */
   | { type: "todo"; todos: AgentTodo[] }
+  /** Tokens de contexto ocupados por el turno (prompt de la última
+   *Step: input + cache). El anillo de contexto de la UI lo consume. */
+  | {
+      type: "usage";
+      contextTokens: number;
+      /** Ventana de contexto si el provider la reporta (ACP usage_update.size). */
+      contextWindow?: number;
+    }
   | { type: "permission"; permissionId: string; summary: string }
   | {
       type: "question";
