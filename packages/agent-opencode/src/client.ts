@@ -1,7 +1,10 @@
-// Cliente HTTP mínimo contra `opencode serve` (TRD §8). Solo lo usa
-// este adapter; ningún componente React importa estas funciones.
+// Cliente HTTP mínimo contra el server v2 (`opencode serve`, rutas /api/*).
+// Solo lo usa este adapter; ningún componente React importa estas funciones.
 
 export type HttpJson = unknown;
+
+/** Basic auth del server v2 (genera password al arrancar; el host lo provee). */
+export type OpenCodeAuth = { username: string; password: string };
 
 export class OpenCodeHttpError extends Error {
   constructor(
@@ -20,14 +23,22 @@ export function withDirectory(url: URL, directory?: string): void {
   }
 }
 
+function authHeaders(auth: OpenCodeAuth | null): Record<string, string> {
+  if (auth == null) return {};
+  const token = btoa(`${auth.username}:${auth.password}`);
+  return { authorization: `Basic ${token}` };
+}
+
 export async function httpGet<T>(
   baseUrl: string,
   path: string,
   directory?: string,
+  auth?: OpenCodeAuth | null,
+  signal?: AbortSignal,
 ): Promise<T> {
   const url = new URL(path, baseUrl);
   withDirectory(url, directory);
-  const res = await fetch(url);
+  const res = await fetch(url, { headers: authHeaders(auth ?? null), signal });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
     throw new OpenCodeHttpError(
@@ -43,10 +54,14 @@ export async function httpDelete(
   baseUrl: string,
   path: string,
   directory?: string,
+  auth?: OpenCodeAuth | null,
 ): Promise<void> {
   const url = new URL(path, baseUrl);
   withDirectory(url, directory);
-  const res = await fetch(url, { method: "DELETE" });
+  const res = await fetch(url, {
+    method: "DELETE",
+    headers: authHeaders(auth ?? null),
+  });
   if (!res.ok && res.status !== 204) {
     const text = await res.text().catch(() => "");
     throw new OpenCodeHttpError(
@@ -63,12 +78,16 @@ export async function httpPost<T>(
   body: unknown,
   directory?: string,
   signal?: AbortSignal,
+  auth?: OpenCodeAuth | null,
 ): Promise<T> {
   const url = new URL(path, baseUrl);
   withDirectory(url, directory);
   const res = await fetch(url, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      ...authHeaders(auth ?? null),
+    },
     body: JSON.stringify(body),
     signal,
   });
@@ -90,17 +109,18 @@ export async function httpPost<T>(
   return JSON.parse(text) as T;
 }
 
-/** Lee un stream SSE (`/event`) y entrega cada payload JSON de `data:`. */
+/** Lee un stream SSE (`/api/event`) y entrega cada payload JSON de `data:`. */
 export async function* readSse(
   baseUrl: string,
   path: string,
   directory?: string,
   signal?: AbortSignal,
+  auth?: OpenCodeAuth | null,
 ): AsyncGenerator<unknown> {
   const url = new URL(path, baseUrl);
   withDirectory(url, directory);
   const res = await fetch(url, {
-    headers: { accept: "text/event-stream" },
+    headers: { accept: "text/event-stream", ...authHeaders(auth ?? null) },
     signal,
   });
   if (!res.ok || res.body == null) {
