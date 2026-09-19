@@ -242,7 +242,7 @@ export function ModelSelector({
             <div
               role="dialog"
               aria-label={t.modelSelector.aria}
-              className="fixed z-[201] flex min-h-0 overflow-hidden rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-1)] shadow-xl"
+              className="steer-popover fixed z-[201] flex min-h-0 overflow-hidden"
               style={{
                 left: layout.left,
                 bottom: layout.bottom,

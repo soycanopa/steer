@@ -1,7 +1,7 @@
 // LayersPanel — capas del DOM (bridge) + páginas del proyecto (src/routes).
 
 import { useState } from "react";
-import { ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
+import { Check, ChevronDown, ChevronRight, FileText, Layers } from "lucide-react";
 import { t } from "./i18n";
 
 export type LayerNodeView = {
@@ -137,25 +137,45 @@ export function PagesMenu({
   }
 
   return (
-    <ul>
+    <ul className="px-1 py-0.5">
       {pages.map((page) => (
         <li key={page.path}>
           <button
             type="button"
             onClick={() => onSelectPage(page.path)}
-            className={`flex w-full flex-col gap-0.5 px-3 py-1.5 text-left transition-colors duration-120 ${
+            className={`flex w-full items-start gap-2 rounded-[var(--radius-s)] px-2 py-1.5 text-left transition-colors duration-120 ${
               page.active
-                ? "bg-[var(--accent-dim)] text-[var(--accent)]"
+                ? "bg-[var(--bg-3)] text-[var(--text-0)]"
                 : "text-[var(--text-1)] hover:bg-[var(--bg-2)]"
             }`}
           >
-            <span className="text-[length:var(--fs-1)]">{page.label}</span>
-            <span
-              className="truncate font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
-              title={page.file}
-            >
-              {page.path}
+            <FileText
+              size={12}
+              strokeWidth={1.75}
+              className={`mt-[2px] shrink-0 ${
+                page.active ? "text-[var(--text-1)]" : "text-[var(--text-2)]"
+              }`}
+              aria-hidden
+            />
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[length:var(--fs-1)]">
+                {page.label}
+              </span>
+              <span
+                className="block truncate font-mono text-[length:var(--fs-0)] text-[var(--text-2)]"
+                title={page.file}
+              >
+                {page.path}
+              </span>
             </span>
+            {page.active ? (
+              <Check
+                size={12}
+                strokeWidth={2.5}
+                className="mt-[2px] shrink-0 text-[var(--text-0)]"
+                aria-hidden
+              />
+            ) : null}
           </button>
         </li>
       ))}

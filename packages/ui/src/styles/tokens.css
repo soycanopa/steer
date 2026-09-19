@@ -1,6 +1,9 @@
 /* Tokens visuales — UI.md §2. Herramienta de taller: superficies planas,
    una familia tipográfica, acento único. Light mode: no en P0. */
 :root {
+  /* Controles nativos (search, scrollbars, autofill) en oscuro: sin esto
+     WKWebView los pinta con el tema claro del sistema por encima del CSS. */
+  color-scheme: dark;
   --bg-0: #141414; /* ventana */
   --bg-1: #1f1f1f; /* paneles */
   --bg-2: #1e2127; /* inputs, chips */
@@ -25,12 +28,23 @@
   --pixel-dot: rgba(255, 255, 255, 0.06);
   --radius-s: 6px;
   --radius-m: 10px;
+  --shadow-popover: 0 16px 40px -12px rgba(0, 0, 0, 0.65);
   --font-ui: "IBM Plex Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SF Mono", monospace;
   --fs-0: 11px;
   --fs-1: 12.5px;
   --fs-2: 13.5px;
   --fs-3: 15px;
+}
+
+/* Superficie flotante única para TODOS los popover/menús de la app:
+   panel elevado (--bg-1), borde visible (--line) y sombra propia.
+   Los componentes aportan posición y tamaño; el look vive acá. */
+.steer-popover {
+  background: var(--bg-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  box-shadow: var(--shadow-popover);
 }
 
 /* Tab de proyecto — esquinas cóncavas abajo (estilo browser tab). */

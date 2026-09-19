@@ -2,7 +2,7 @@
 // Al enviar crea el proyecto (scaffold TanStack Start) y el prompt queda como
 // primer mensaje del chat del nuevo proyecto.
 
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { BorderBeam } from "border-beam";
 import { Folder, FolderOpen, Loader2, Lock, SendHorizontal } from "lucide-react";
@@ -12,6 +12,8 @@ import {
   type ProviderGroupView,
   type ReasoningEffortUi,
 } from "./ModelSelector";
+import { useAnchoredPopover } from "./use-anchored-popover";
+import { MenuContent, MenuItem } from "./menu";
 import { t } from "./i18n";
 
 export type HomePermissionPolicy = "default" | "always";
@@ -48,40 +50,6 @@ export type HomeComposerProps = {
   onSetPermissionPolicy(policy: HomePermissionPolicy): void;
 };
 
-/** Popover anclado arriba de un botón, en portal (escapa el overflow del
- *  wrapper del BorderBeam que recortaba el popover). */
-function useAnchoredPopover(open: boolean, width: number) {
-  const anchorRef = useRef<HTMLButtonElement>(null);
-  const [layout, setLayout] = useState<{ left: number; bottom: number } | null>(
-    null,
-  );
-
-  useLayoutEffect(() => {
-    if (!open) {
-      setLayout(null);
-      return;
-    }
-    const update = () => {
-      const el = anchorRef.current;
-      if (el == null) return;
-      const r = el.getBoundingClientRect();
-      const left = Math.min(
-        Math.max(8, r.left),
-        Math.max(8, window.innerWidth - width - 8),
-      );
-      setLayout({ left, bottom: window.innerHeight - r.top + 6 });
-    };
-    update();
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    return () => {
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-    };
-  }, [open, width]);
-
-  return { anchorRef, layout };
-}
 
 export function HomeComposer({
   creating = false,
@@ -160,7 +128,7 @@ export function HomeComposer({
       borderRadius={16}
       style={{ boxShadow: "var(--shadow-input)" }}
     >
-    <div className="relative rounded-[var(--radius-input)] border-[length:var(--beam-width)] border-[var(--border-input)] bg-[var(--bg-0)] focus-within:border-[var(--accent)]">
+    <div className="relative overflow-hidden rounded-[var(--radius-input)] border-[length:var(--beam-width)] border-[var(--border-input)] bg-[var(--bg-0)] focus-within:border-[var(--accent)]">
       {progress != null ? (
         <div className="flex flex-col gap-1.5 border-b border-[var(--line)] px-3 pt-2.5 pb-2">
           <div className="flex items-center justify-between gap-2 text-[length:var(--fs-0)] text-[var(--text-2)]">
@@ -204,6 +172,13 @@ export function HomeComposer({
         className="max-h-[160px] min-h-[96px] w-full resize-none rounded-t-[var(--radius-m)] bg-transparent px-3 pt-2.5 pb-10 text-[length:var(--fs-2)] text-[var(--text-0)] outline-none placeholder:text-[var(--text-2)] disabled:opacity-50"
       />
 
+      {/* Fundido: el texto que scrollea bajo los controles se desvanece
+          en vez de cortarse feo (el overlay de controles va encima). */}
+      <div
+        aria-hidden
+        className="pointer-events-none absolute inset-x-2 bottom-0 h-10"
+        style={{ background: "linear-gradient(to top, var(--bg-0) 35%, transparent)" }}
+      />
       <div className="pointer-events-none absolute inset-x-0 bottom-0 flex items-center gap-1 px-2 pb-2">
         <ModelSelector
           agents={agentTabs}
@@ -234,7 +209,7 @@ export function HomeComposer({
           >
             <Folder size={12} strokeWidth={1.75} />
           </button>
-          {folderOpen && folderMenu.layout != null
+          {folderOpen && folderMenu.style != null
             ? createPortal(
                 <div
                   className="fixed inset-0 z-[200]"
@@ -244,11 +219,8 @@ export function HomeComposer({
                     role="dialog"
                     aria-label={t.composer.projectAndLocation}
                     onMouseDown={(e) => e.stopPropagation()}
-                    className="fixed z-[201] w-72 rounded-[var(--radius-m)] border border-[var(--border-input)] bg-[var(--bg-0)] p-3 shadow-xl"
-                    style={{
-                      left: folderMenu.layout.left,
-                      bottom: folderMenu.layout.bottom,
-                    }}
+                    className="steer-popover fixed z-[201] w-72 p-3"
+                    style={folderMenu.style ?? undefined}
                   >
                 <label className="flex flex-col gap-1.5">
                   <span className="text-[length:var(--fs-1)] text-[var(--text-1)]">
@@ -328,48 +300,33 @@ export function HomeComposer({
           >
             <Lock size={12} strokeWidth={1.75} />
           </button>
-          {lockOpen && lockMenu.layout != null
+          {lockOpen && lockMenu.style != null
             ? createPortal(
                 <div
                   className="fixed inset-0 z-[200]"
                   onMouseDown={() => setLockOpen(false)}
                 >
-                  <div
-                    role="dialog"
-                    aria-label={t.permissions.title}
+                  <MenuContent
+                    className="fixed w-56"
+                    style={lockMenu.style ?? undefined}
                     onMouseDown={(e) => e.stopPropagation()}
-                    className="fixed z-[201] w-48 rounded-[var(--radius-m)] border border-[var(--border-input)] bg-[var(--bg-0)] py-1 shadow-xl"
-                    style={{
-                      left: lockMenu.layout.left,
-                      bottom: lockMenu.layout.bottom,
-                    }}
                   >
-                {PERMISSION_POLICY_IDS.map((id) => {
-                  const meta = permissionPolicyMeta(id);
-                  return (
-                    <button
-                      key={id}
-                      type="button"
-                      onClick={() => {
-                        onSetPermissionPolicy(id);
-                        setLockOpen(false);
-                      }}
-                      className={`flex w-full flex-col items-start px-2.5 py-1.5 text-left transition-colors duration-120 ${
-                        permissionPolicy === id
-                          ? "bg-[var(--accent-dim)]"
-                          : "hover:bg-[var(--bg-2)]"
-                      }`}
-                    >
-                      <span className="text-[length:var(--fs-1)] text-[var(--text-0)]">
-                        {meta.label}
-                      </span>
-                      <span className="font-mono text-[length:var(--fs-0)] text-[var(--text-2)]">
-                        {meta.hint}
-                      </span>
-                    </button>
-                  );
-                })}
-                  </div>
+                    {PERMISSION_POLICY_IDS.map((id) => {
+                      const meta = permissionPolicyMeta(id);
+                      return (
+                        <MenuItem
+                          key={id}
+                          selected={permissionPolicy === id}
+                          label={meta.label}
+                          hint={meta.hint}
+                          onClick={() => {
+                            onSetPermissionPolicy(id);
+                            setLockOpen(false);
+                          }}
+                        />
+                      );
+                    })}
+                  </MenuContent>
                 </div>,
                 document.body,
               )

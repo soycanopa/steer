@@ -469,7 +469,7 @@ export function PreviewFrame({
                 className="fixed inset-0 z-10 cursor-default"
                 onClick={() => setPagesOpen(false)}
               />
-              <div className="absolute top-full left-1/2 z-20 mt-1 w-56 -translate-x-1/2 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+              <div className="steer-popover absolute top-full left-1/2 z-20 mt-1 w-56 -translate-x-1/2 py-1">
                 <p className="px-3 py-1 font-mono text-[length:var(--fs-0)] tracking-wide text-[var(--text-2)] uppercase">
                   {t.preview.pages}
                 </p>
@@ -518,7 +518,7 @@ export function PreviewFrame({
                   className="fixed inset-0 z-10 cursor-default"
                   onClick={() => setViewportOpen(false)}
                 />
-                <div className="absolute top-full right-0 z-20 mt-1 w-44 rounded-[var(--radius-m)] border border-[var(--line)] bg-[var(--bg-0)] py-1 shadow-lg">
+                <div className="steer-popover absolute top-full right-0 z-20 mt-1 w-44 py-1">
                   {(Object.keys(VIEWPORT_META) as PreviewViewportUi[]).map((key) => {
                     const meta = viewportMeta(key);
                     const Icon = VIEWPORT_META[key].Icon;
@@ -532,7 +532,7 @@ export function PreviewFrame({
                         }}
                         className={`flex w-full items-center gap-2 px-2.5 py-1.5 text-left transition-colors duration-120 ${
                           viewport === key
-                            ? "bg-[var(--accent-dim)]"
+                            ? "bg-[var(--bg-3)]"
                             : "hover:bg-[var(--bg-2)]"
                         }`}
                       >
