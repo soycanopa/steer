@@ -94,6 +94,10 @@ export default function App() {
   const modelParamValues = useStore(store, (s) => s.modelParamValues);
   const agentBusy = useStore(store, (s) => s.agentBusy);
   const permissionPolicy = useStore(store, (s) => s.permissionPolicy);
+  const vcs = useStore(store, (s) => s.vcs);
+  const contextTokens = useStore(store, (s) => s.contextTokens);
+  const usageWindow = useStore(store, (s) => s.contextWindow);
+  const vcsError = useStore(store, (s) => s.vcsError);
   const agentSessions = useStore(store, (s) => s.agentSessions);
   const [chatWidth, setChatWidth] = useState(340);
   const [layersWidth, setLayersWidth] = useState(240);
@@ -300,6 +304,13 @@ export default function App() {
 
   const projectOpen = projectStatus === "open" && projectMeta != null;
   const showProjectWorkspace = projectOpen && workspaceView === "project";
+
+  // Branches del repo del proyecto abierto (selector bajo el composer).
+  useEffect(() => {
+    if (showProjectWorkspace) {
+      void store.getState().refreshVcs();
+    }
+  }, [showProjectWorkspace, projectMeta?.root]);
   const previewFrameUrl =
     previewUrl != null ? joinPreviewPageUrl(previewUrl, previewPath) : null;
   const layersTreeState: LayersTreeState =
@@ -374,9 +385,13 @@ export default function App() {
       agentStatus={agentUiStatus}
       agentDetail={agentDetail}
       agentBusy={agentBusy}
-      modelLabel={selectedModel?.label ?? null}
       mode={mode}
       queueCount={queue.length}
+      branch={vcs?.current ?? null}
+      branches={vcs?.branches ?? []}
+      vcsError={vcsError}
+      projectScope={projectOpen ? "local" : null}
+      onSelectBranch={(name) => void store.getState().switchBranch(name)}
     >
       <DebugDrawer open={debugOpen} />
       {showProjectWorkspace ? (
@@ -453,6 +468,12 @@ export default function App() {
                     permissionPolicy={permissionPolicy}
                     agentSessions={agentSessionItems}
                     todos={activeSession.todos}
+                    contextTokens={contextTokens}
+                    contextWindow={
+                      usageWindow ??
+                      selectedModel?.capabilities.contextWindow ??
+                      null
+                    }
                     agentBusy={agentBusy}
                     agentOnline={agentUiStatus === "live"}
                     onDraftNote={(text) => store.getState().setDraftNote(text)}
